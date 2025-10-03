@@ -1,0 +1,55 @@
+# Alternative Dockerfile with better network handling
+FROM golang:1.21-alpine AS builder
+
+# Install necessary packages for better network reliability
+RUN apk add --no-cache git ca-certificates tzdata curl
+
+WORKDIR /app
+
+# Set Go environment variables for better reliability
+ENV GOPROXY=https://proxy.golang.org,direct
+ENV GOSUMDB=sum.golang.org
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV GOARCH=amd64
+
+# Copy shared modules first
+COPY shared/security ./shared-security
+
+# Copy go.mod first for better layer caching
+COPY services/appointment-service/go.mod ./
+
+# Create a simple script to handle network issues
+RUN echo '#!/bin/sh' > /usr/local/bin/go-mod-retry && \
+    echo 'for i in 1 2 3 4 5; do' >> /usr/local/bin/go-mod-retry && \
+    echo '  echo "Attempt $i: $@"' >> /usr/local/bin/go-mod-retry && \
+    echo '  if timeout 60 "$@"; then' >> /usr/local/bin/go-mod-retry && \
+    echo '    echo "Success on attempt $i"' >> /usr/local/bin/go-mod-retry && \
+    echo '    exit 0' >> /usr/local/bin/go-mod-retry && \
+    echo '  fi' >> /usr/local/bin/go-mod-retry && \
+    echo '  echo "Failed attempt $i, waiting..."' >> /usr/local/bin/go-mod-retry && \
+    echo '  sleep $((i * 10))' >> /usr/local/bin/go-mod-retry && \
+    echo 'done' >> /usr/local/bin/go-mod-retry && \
+    echo 'echo "All attempts failed"' >> /usr/local/bin/go-mod-retry && \
+    echo 'exit 1' >> /usr/local/bin/go-mod-retry && \
+    chmod +x /usr/local/bin/go-mod-retry
+
+# Download dependencies with retry mechanism
+RUN go-mod-retry go mod download
+
+# Copy the rest of the service code
+COPY services/appointment-service/ .
+
+# Generate go.sum and build
+RUN go-mod-retry go mod tidy
+RUN go build -o main .
+
+# Final stage
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates tzdata
+WORKDIR /root/
+
+COPY --from=builder /app/main .
+
+EXPOSE 8082
+CMD ["./main"]

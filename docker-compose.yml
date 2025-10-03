@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: drandme
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    networks:
+      - clinic_network
+
+  auth-service:
+    build: 
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      DB_NAME: drandme
+      JWT_ACCESS_SECRET: your-access-secret-key-here
+      JWT_REFRESH_SECRET: your-refresh-secret-key-here
+      PORT: 8080
+    depends_on:
+      - postgres
+    networks:
+      - clinic_network
+
+  organization-service:
+    build: 
+      context: .
+      dockerfile: services/organization-service/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      DB_NAME: drandme
+      JWT_ACCESS_SECRET: your-access-secret-key-here
+      JWT_REFRESH_SECRET: your-refresh-secret-key-here
+      PORT: 8081
+    depends_on:
+      - postgres
+    networks:
+      - clinic_network
+
+  appointment-service:
+    build: 
+      context: .
+      dockerfile: services/appointment-service/Dockerfile
+    ports:
+      - "8082:8082"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      DB_NAME: drandme
+      JWT_ACCESS_SECRET: your-access-secret-key-here
+      JWT_REFRESH_SECRET: your-refresh-secret-key-here
+      PORT: 8082
+    depends_on:
+      - postgres
+    networks:
+      - clinic_network
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@drandme.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - clinic_network
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+
+networks:
+  clinic_network:
+    driver: bridge
