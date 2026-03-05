@@ -1,0 +1,156 @@
+version: '3.8'
+
+# Production Docker Compose with Kong API Gateway
+# This file orchestrates all microservices through Kong
+# Each service should be built and pushed to a container registry
+
+services:
+  # Shared PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-drandme}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Kong API Gateway
+  kong:
+    image: kong:3.4
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    ports:
+      - "${KONG_PROXY_PORT:-8000}:8000"   # Kong Proxy (API Gateway)
+      - "${KONG_ADMIN_PORT:-8001}:8001"   # Kong Admin API
+    volumes:
+      - ./kong.yml:/kong/kong.yml:ro
+    networks:
+      - microservices_network
+    depends_on:
+      - auth-service
+      - organization-service
+      - appointment-service
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+
+  # Auth Service
+  auth-service:
+    image: ${AUTH_SERVICE_IMAGE:-yourregistry/drandme-auth-service:latest}
+    expose:
+      - "8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-drandme}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      PORT: 8080
+    networks:
+      - microservices_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/api/auth/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Organization Service
+  organization-service:
+    image: ${ORG_SERVICE_IMAGE:-yourregistry/drandme-organization-service:latest}
+    expose:
+      - "8081"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-drandme}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      PORT: 8081
+    networks:
+      - microservices_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/api/organizations/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Appointment Service
+  appointment-service:
+    image: ${APPOINTMENT_SERVICE_IMAGE:-yourregistry/drandme-appointment-service:latest}
+    expose:
+      - "8082"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-drandme}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      PORT: 8082
+    networks:
+      - microservices_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+
+networks:
+  microservices_network:
+    driver: bridge
+
+# Usage:
+# 1. Create .env file with:
+#    DB_PASSWORD=your-secure-password
+#    JWT_ACCESS_SECRET=your-access-secret
+#    JWT_REFRESH_SECRET=your-refresh-secret
+#    AUTH_SERVICE_IMAGE=yourregistry/drandme-auth-service:v1.0.0
+#    ORG_SERVICE_IMAGE=yourregistry/drandme-organization-service:v1.0.0
+#    APPOINTMENT_SERVICE_IMAGE=yourregistry/drandme-appointment-service:v1.0.0
+#
+# 2. Build and push service images:
+#    docker build -t yourregistry/drandme-auth-service:v1.0.0 ./drandme-auth-service
+#    docker push yourregistry/drandme-auth-service:v1.0.0
+#
+# 3. Start all services:
+#    docker-compose -f production-kong-docker-compose.yml --env-file .env up -d
+

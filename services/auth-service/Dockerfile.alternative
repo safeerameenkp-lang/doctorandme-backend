@@ -12,14 +12,8 @@ ENV GO111MODULE=on
 # Install git and ca-certificates for module downloads
 RUN apk add --no-cache git ca-certificates
 
-# Copy shared modules to the correct location
-COPY shared/security ./shared-security
-
-# Copy service files
-COPY services/auth-service/go.mod ./
-
-# Copy go.sum if it exists, otherwise it will be generated
-COPY services/auth-service/go.sum* ./
+# Copy go.mod and go.sum first (for better Docker layer caching)
+COPY go.mod go.sum* ./
 
 # Try different approaches to download dependencies
 RUN go mod download || \
@@ -31,7 +25,7 @@ RUN go mod download || \
      go mod download -x)
 
 # Copy the rest of the service code
-COPY services/auth-service/ .
+COPY . .
 
 # Generate go.sum and build the application
 RUN go mod tidy

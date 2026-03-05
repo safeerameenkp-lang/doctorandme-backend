@@ -13,11 +13,8 @@ ENV CGO_ENABLED=0
 ENV GOOS=linux
 ENV GOARCH=amd64
 
-# Copy shared modules first
-COPY shared/security ./shared-security
-
-# Copy go.mod first for better layer caching
-COPY services/appointment-service/go.mod ./
+# Copy go.mod and go.sum first (for better Docker layer caching)
+COPY go.mod go.sum* ./
 
 # Create a simple script to handle network issues
 RUN echo '#!/bin/sh' > /usr/local/bin/go-mod-retry && \
@@ -38,7 +35,7 @@ RUN echo '#!/bin/sh' > /usr/local/bin/go-mod-retry && \
 RUN go-mod-retry go mod download
 
 # Copy the rest of the service code
-COPY services/appointment-service/ .
+COPY . .
 
 # Generate go.sum and build
 RUN go-mod-retry go mod tidy

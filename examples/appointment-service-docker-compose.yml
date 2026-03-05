@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: drandme
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5434:5432"  # Different port to avoid conflicts
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - appointment_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Note: In production, you should run auth-service and organization-service migrations first
+  # as appointment-service depends on tables from both services
+  appointment-migrations:
+    image: postgres:15-alpine
+    environment:
+      PGPASSWORD: postgres123
+    volumes:
+      - ./migrations:/migrations:ro
+    command: >
+      sh -c "
+        until pg_isready -h postgres -p 5432 -U postgres; do
+          echo 'Waiting for postgres...'
+          sleep 1
+        done
+        for f in /migrations/*.sql; do
+          echo \"Running migration: $$(basename $$f)\"
+          psql -h postgres -p 5432 -U postgres -d drandme -f $$f
+        done
+        echo 'Appointment service migrations completed!'
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - appointment_network
+
+  appointment-service:
+    build: .
+    expose:
+      - "8082"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      DB_NAME: drandme
+      JWT_ACCESS_SECRET: your-access-secret-key-here
+      JWT_REFRESH_SECRET: your-refresh-secret-key-here
+      PORT: 8082
+    depends_on:
+      postgres:
+        condition: service_healthy
+      appointment-migrations:
+        condition: service_completed_successfully
+    networks:
+      - appointment_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  appointment_network:
+    driver: bridge
+

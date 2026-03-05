@@ -4,20 +4,37 @@ A microservices-based clinic management system built with Go (Gin framework) and
 
 ## Architecture
 
-This system uses a microservices architecture where each service runs in its own Docker container but connects to the same PostgreSQL database. The services share common security middleware through a shared module for consistency and maintainability.
+This system uses a **100% microservices architecture** with **Kong API Gateway** as the single entry point. Each service runs in its own Docker container, connects to the same PostgreSQL database, and is accessed exclusively through Kong. Services never communicate directly with each other - all inter-service communication goes through Kong.
+
+### API Gateway
+
+**Kong API Gateway** (Port 8000)
+- Single entry point for all API requests
+- Routes requests to appropriate microservices
+- Handles CORS, request ID, and correlation ID
+- Services are not directly exposed to the internet
 
 ### Services
 
-1. **Auth Service** (Port 8080)
+1. **Auth Service** (Internal Port 8080)
    - User registration and authentication
    - JWT token management
    - Role-based access control (RBAC)
+   - **Access via Kong**: `http://localhost:8000/api/auth`
 
-2. **Organization Service** (Port 8081)
+2. **Organization Service** (Internal Port 8081)
    - Organization management
    - Clinic management
    - External service management (labs, pharmacies)
    - Clinic-service linking
+   - **Access via Kong**: `http://localhost:8000/api/organizations`
+
+3. **Appointment Service** (Internal Port 8082)
+   - Appointment booking and management
+   - Patient check-ins
+   - Vitals recording
+   - Reports and analytics
+   - **Access via Kong**: `http://localhost:8000/api/v1`
 
 ### Shared Security Module
 
@@ -60,10 +77,25 @@ The system uses PostgreSQL with UUID primary keys and includes the following mai
    docker-compose up --build
    ```
 
-3. **The services will be available at:**
-   - Auth Service: http://localhost:8080
-   - Organization Service: http://localhost:8081
-   - PostgreSQL: localhost:5432
+3. **Access services through Kong API Gateway:**
+   - **Kong Gateway**: http://localhost:8000 (Main entry point)
+   - **Kong Admin API**: http://localhost:8001 (Management)
+   - **Auth Service**: http://localhost:8000/api/auth
+   - **Organization Service**: http://localhost:8000/api/organizations
+   - **Appointment Service**: http://localhost:8000/api/v1
+   - **PostgreSQL**: localhost:5432
+
+   > **Note**: Services are not directly exposed. All requests must go through Kong at port 8000.
+
+4. **Quick Test**
+   ```bash
+   # Health checks
+   curl http://localhost:8000/api/auth/health
+   curl http://localhost:8000/api/organizations/health
+   curl http://localhost:8000/api/v1/health
+   ```
+
+See [KONG_QUICK_START.md](KONG_QUICK_START.md) for more details.
 
 ## API Endpoints
 
@@ -255,14 +287,24 @@ To run migrations manually:
 - Refresh token rotation
 - Multi-device login support
 
+## Microservices Migration
+
+This repository is set up for migration to separate repositories. See:
+- [MICROSERVICES_MIGRATION_GUIDE.md](MICROSERVICES_MIGRATION_GUIDE.md) - Complete migration guide
+- [SHARED_SECURITY_MODULE_SETUP.md](SHARED_SECURITY_MODULE_SETUP.md) - Shared security module setup
+- [KONG_QUICK_START.md](KONG_QUICK_START.md) - Kong API Gateway quick start
+
 ## Production Considerations
 
 - Change default JWT secrets
 - Use environment-specific database credentials
 - Enable SSL/TLS for database connections
 - Implement proper logging and monitoring
-- Add rate limiting and request validation
+- Add rate limiting and request validation (via Kong plugins)
 - Use secrets management for sensitive data
+- Configure Kong for production (rate limiting, authentication, etc.)
+- Set up service discovery for dynamic service registration
+- Use separate databases per service (if needed for true isolation)
 
 ## License
 

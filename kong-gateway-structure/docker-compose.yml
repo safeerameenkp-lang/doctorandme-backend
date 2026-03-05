@@ -1,0 +1,238 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: drandme-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-drandme}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - drandme_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Migration services - run migrations for each service
+  auth-migrations:
+    image: postgres:15-alpine
+    environment:
+      PGPASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./migrations/auth-service:/migrations:ro
+    command: >
+      sh -c "
+        until pg_isready -h postgres -p 5432 -U ${DB_USER:-postgres}; do
+          echo 'Waiting for postgres...'
+          sleep 1
+        done
+        for f in /migrations/*.sql; do
+          echo \"Running migration: $$(basename $$f)\"
+          psql -h postgres -p 5432 -U ${DB_USER:-postgres} -d ${DB_NAME:-drandme} -f $$f
+        done
+        echo 'Auth service migrations completed!'
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - drandme_network
+
+  organization-migrations:
+    image: postgres:15-alpine
+    environment:
+      PGPASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./migrations/organization-service:/migrations:ro
+    command: >
+      sh -c "
+        until pg_isready -h postgres -p 5432 -U ${DB_USER:-postgres}; do
+          echo 'Waiting for postgres...'
+          sleep 1
+        done
+        for f in /migrations/*.sql; do
+          echo \"Running migration: $$(basename $$f)\"
+          psql -h postgres -p 5432 -U ${DB_USER:-postgres} -d ${DB_NAME:-drandme} -f $$f
+        done
+        echo 'Organization service migrations completed!'
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-migrations:
+        condition: service_completed_successfully
+    networks:
+      - drandme_network
+
+  appointment-migrations:
+    image: postgres:15-alpine
+    environment:
+      PGPASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./migrations/appointment-service:/migrations:ro
+    command: >
+      sh -c "
+        until pg_isready -h postgres -p 5432 -U ${DB_USER:-postgres}; do
+          echo 'Waiting for postgres...'
+          sleep 1
+        done
+        for f in /migrations/*.sql; do
+          echo \"Running migration: $$(basename $$f)\"
+          psql -h postgres -p 5432 -U ${DB_USER:-postgres} -d ${DB_NAME:-drandme} -f $$f
+        done
+        echo 'Appointment service migrations completed!'
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-migrations:
+        condition: service_completed_successfully
+      organization-migrations:
+        condition: service_completed_successfully
+    networks:
+      - drandme_network
+
+  # Kong API Gateway
+  kong:
+    image: kong:3.4
+    container_name: drandme-kong
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    ports:
+      - "${KONG_PROXY_PORT:-8000}:8000"   # API Gateway
+      - "${KONG_ADMIN_PORT:-8001}:8001"   # Admin API
+    volumes:
+      - ./kong.yml:/kong/kong.yml:ro
+    depends_on:
+      - auth-service
+      - organization-service
+      - appointment-service
+    networks:
+      - drandme_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+
+  # Auth Service
+  auth-service:
+    image: ${AUTH_SERVICE_IMAGE:-your-registry/drandme-auth-service:latest}
+    container_name: drandme-auth-service
+    expose:
+      - "8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-drandme}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      PORT: 8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-migrations:
+        condition: service_completed_successfully
+    networks:
+      - drandme_network
+    restart: unless-stopped
+
+  # Organization Service
+  organization-service:
+    image: ${ORG_SERVICE_IMAGE:-your-registry/drandme-organization-service:latest}
+    container_name: drandme-organization-service
+    expose:
+      - "8081"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-drandme}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      PORT: 8081
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-migrations:
+        condition: service_completed_successfully
+      organization-migrations:
+        condition: service_completed_successfully
+    networks:
+      - drandme_network
+    restart: unless-stopped
+
+  # Appointment Service
+  appointment-service:
+    image: ${APPT_SERVICE_IMAGE:-your-registry/drandme-appointment-service:latest}
+    container_name: drandme-appointment-service
+    expose:
+      - "8082"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-drandme}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      PORT: 8082
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-migrations:
+        condition: service_completed_successfully
+      organization-migrations:
+        condition: service_completed_successfully
+      appointment-migrations:
+        condition: service_completed_successfully
+    networks:
+      - drandme_network
+    restart: unless-stopped
+
+  # Optional: PgAdmin (for database management)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: drandme-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@drandme.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - drandme_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+
+networks:
+  drandme_network:
+    driver: bridge
+

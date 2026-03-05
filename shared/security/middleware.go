@@ -230,6 +230,290 @@ func RequireRole(db Database, expectedRoles ...string) gin.HandlerFunc {
 }
 
 
+// RequireSuperAdmin creates a Gin middleware that ensures the user has super_admin role
+func RequireSuperAdmin(db Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        userID := c.GetString("user_id")
+
+        if userID == "" {
+            SendError(c, http.StatusUnauthorized, CodeUserNotAuthenticated, "User not authenticated", 
+                "User authentication is required to access this resource", nil)
+            c.Abort()
+            return
+        }
+
+        // Check if user has super_admin role
+        var isSuperAdmin bool
+        err := db.QueryRow(`
+            SELECT EXISTS(
+                SELECT 1 FROM roles r
+                JOIN user_roles ur ON ur.role_id = r.id
+                WHERE ur.user_id = $1 AND r.name = 'super_admin' AND ur.is_active = true
+            )
+        `, userID).Scan(&isSuperAdmin)
+
+        if err != nil {
+            SendError(c, http.StatusInternalServerError, CodePermissionCheckError, "Failed to check user permissions", 
+                "Unable to verify user permissions. Please try again later", nil)
+            c.Abort()
+            return
+        }
+
+        if !isSuperAdmin {
+            SendError(c, http.StatusForbidden, CodeInsufficientPermissions, "Insufficient permissions", 
+                "Access denied. This resource requires super_admin role", 
+                gin.H{
+                    "required_roles": []string{"super_admin"},
+                })
+            c.Abort()
+            return
+        }
+
+        // ✅ FIX: Set context variables for downstream controllers
+        c.Set("is_super_admin", true)
+        c.Set("is_organization_admin", false)
+        c.Set("is_clinic_admin", false)
+        c.Next()
+    }
+}
+
+// RequireAdminRole creates a Gin middleware that ensures the user has admin-level roles
+func RequireAdminRole(db Database) gin.HandlerFunc {
+    adminRoles := []string{"super_admin", "organization_admin", "clinic_admin"}
+    return RequireRole(db, adminRoles...)
+}
+
+// GetUserOrganizationContext retrieves all organizations the user has access to
+func GetUserOrganizationContext(db Database, userID string) ([]string, error) {
+    rows, err := db.Query(`
+        SELECT DISTINCT ur.organization_id
+        FROM user_roles ur
+        WHERE ur.user_id = $1 
+        AND ur.organization_id IS NOT NULL
+        AND ur.is_active = true
+    `, userID)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var orgIDs []string
+    for rows.Next() {
+        var orgID string
+        if err := rows.Scan(&orgID); err != nil {
+            continue
+        }
+        orgIDs = append(orgIDs, orgID)
+    }
+    return orgIDs, nil
+}
+
+// GetUserClinicContext retrieves all clinics the user has access to
+func GetUserClinicContext(db Database, userID string) ([]string, error) {
+    rows, err := db.Query(`
+        SELECT DISTINCT ur.clinic_id
+        FROM user_roles ur
+        WHERE ur.user_id = $1 
+        AND ur.clinic_id IS NOT NULL
+        AND ur.is_active = true
+    `, userID)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var clinicIDs []string
+    for rows.Next() {
+        var clinicID string
+        if err := rows.Scan(&clinicID); err != nil {
+            continue
+        }
+        clinicIDs = append(clinicIDs, clinicID)
+    }
+    return clinicIDs, nil
+}
+
+// RequireOrganizationAdmin middleware ensures user is admin of the specified organization
+func RequireOrganizationAdmin(db Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        userID := c.GetString("user_id")
+        if userID == "" {
+            SendError(c, http.StatusUnauthorized, CodeUserNotAuthenticated, "User not authenticated", 
+                "User authentication is required to access this resource", nil)
+            c.Abort()
+            return
+        }
+
+        // Check if user is super_admin (they have access to everything)
+        var isSuperAdmin bool
+        err := db.QueryRow(`
+            SELECT EXISTS(
+                SELECT 1 FROM roles r
+                JOIN user_roles ur ON ur.role_id = r.id
+                WHERE ur.user_id = $1 AND r.name = 'super_admin' AND ur.is_active = true
+            )
+        `, userID).Scan(&isSuperAdmin)
+
+        if err != nil {
+            SendError(c, http.StatusInternalServerError, CodePermissionCheckError, "Failed to check permissions", 
+                "Unable to verify user permissions. Please try again later", nil)
+            c.Abort()
+            return
+        }
+
+        if isSuperAdmin {
+            c.Set("is_super_admin", true)
+            c.Next()
+            return
+        }
+
+        // Check if user is organization_admin and get their organizations
+        var isOrgAdmin bool
+        err = db.QueryRow(`
+            SELECT EXISTS(
+                SELECT 1 FROM roles r
+                JOIN user_roles ur ON ur.role_id = r.id
+                WHERE ur.user_id = $1 AND r.name = 'organization_admin' AND ur.is_active = true
+            )
+        `, userID).Scan(&isOrgAdmin)
+
+        if err != nil || !isOrgAdmin {
+            SendError(c, http.StatusForbidden, CodeInsufficientPermissions, "Insufficient permissions", 
+                "Access denied. This resource requires organization_admin or super_admin role", 
+                gin.H{"required_roles": []string{"organization_admin", "super_admin"}})
+            c.Abort()
+            return
+        }
+
+        // Get user's organization context
+        orgIDs, err := GetUserOrganizationContext(db, userID)
+        if err != nil || len(orgIDs) == 0 {
+            SendError(c, http.StatusForbidden, CodeInsufficientPermissions, "No organization access", 
+                "You are not assigned to any organization", nil)
+            c.Abort()
+            return
+        }
+
+        c.Set("is_super_admin", false)
+        c.Set("is_organization_admin", true)
+        c.Set("organization_ids", orgIDs)
+        c.Next()
+    }
+}
+
+// RequireClinicAdmin middleware ensures user is admin of the specified clinic
+func RequireClinicAdmin(db Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        userID := c.GetString("user_id")
+        if userID == "" {
+            SendError(c, http.StatusUnauthorized, CodeUserNotAuthenticated, "User not authenticated", 
+                "User authentication is required to access this resource", nil)
+            c.Abort()
+            return
+        }
+
+        // Check if user is super_admin (they have access to everything)
+        var isSuperAdmin bool
+        err := db.QueryRow(`
+            SELECT EXISTS(
+                SELECT 1 FROM roles r
+                JOIN user_roles ur ON ur.role_id = r.id
+                WHERE ur.user_id = $1 AND r.name = 'super_admin' AND ur.is_active = true
+            )
+        `, userID).Scan(&isSuperAdmin)
+
+        if err != nil {
+            SendError(c, http.StatusInternalServerError, CodePermissionCheckError, "Failed to check permissions", 
+                "Unable to verify user permissions. Please try again later", nil)
+            c.Abort()
+            return
+        }
+
+        if isSuperAdmin {
+            c.Set("is_super_admin", true)
+            c.Set("is_organization_admin", false)
+            c.Set("is_clinic_admin", false)
+            c.Next()
+            return
+        }
+
+        // Check if user is clinic_admin and get their clinics
+        var isClinicAdmin bool
+        err = db.QueryRow(`
+            SELECT EXISTS(
+                SELECT 1 FROM roles r
+                JOIN user_roles ur ON ur.role_id = r.id
+                WHERE ur.user_id = $1 AND r.name = 'clinic_admin' AND ur.is_active = true
+            )
+        `, userID).Scan(&isClinicAdmin)
+
+        if err != nil || !isClinicAdmin {
+            SendError(c, http.StatusForbidden, CodeInsufficientPermissions, "Insufficient permissions", 
+                "Access denied. This resource requires clinic_admin or super_admin role", 
+                gin.H{"required_roles": []string{"clinic_admin", "super_admin"}})
+            c.Abort()
+            return
+        }
+
+        // Get user's clinic context
+        clinicIDs, err := GetUserClinicContext(db, userID)
+        if err != nil || len(clinicIDs) == 0 {
+            SendError(c, http.StatusForbidden, CodeInsufficientPermissions, "No clinic access", 
+                "You are not assigned to any clinic", nil)
+            c.Abort()
+            return
+        }
+
+        c.Set("is_super_admin", false)
+        c.Set("is_organization_admin", false)
+        c.Set("is_clinic_admin", true)
+        c.Set("clinic_ids", clinicIDs)
+        c.Next()
+    }
+}
+
+// RequireAnyAdmin middleware ensures user has any admin role
+func RequireAnyAdmin(db Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        userID := c.GetString("user_id")
+        if userID == "" {
+            SendError(c, http.StatusUnauthorized, CodeUserNotAuthenticated, "User not authenticated", 
+                "User authentication is required to access this resource", nil)
+            c.Abort()
+            return
+        }
+
+        // Check if user has any admin role
+        var hasAdminRole bool
+        err := db.QueryRow(`
+            SELECT EXISTS(
+                SELECT 1 FROM roles r
+                JOIN user_roles ur ON ur.role_id = r.id
+                WHERE ur.user_id = $1 
+                AND r.name IN ('super_admin', 'organization_admin', 'clinic_admin')
+                AND ur.is_active = true
+            )
+        `, userID).Scan(&hasAdminRole)
+
+        if err != nil {
+            SendError(c, http.StatusInternalServerError, CodePermissionCheckError, "Failed to check permissions", 
+                "Unable to verify user permissions. Please try again later", nil)
+            c.Abort()
+            return
+        }
+
+        if !hasAdminRole {
+            SendError(c, http.StatusForbidden, CodeInsufficientPermissions, "Insufficient permissions", 
+                "Access denied. This resource requires an admin role", 
+                gin.H{"required_roles": []string{"super_admin", "organization_admin", "clinic_admin"}})
+            c.Abort()
+            return
+        }
+
+        c.Next()
+    }
+}
+
 func CORSMiddleware() gin.HandlerFunc {
     return func(c *gin.Context) {
         origin := c.Request.Header.Get("Origin")

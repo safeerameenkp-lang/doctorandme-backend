@@ -11,17 +11,15 @@ ENV GO111MODULE=on
 ENV GONOPROXY=""
 ENV GONOSUMDB=""
 
-# Install git and ca-certificates for module downloads
-RUN apk add --no-cache git ca-certificates
+# Install git and ca-certificates for module downloads with retry
+# Try installing first (may use cached packages), then update if needed
+RUN apk add --no-cache git ca-certificates || \
+    (apk update --no-cache && apk add --no-cache git ca-certificates) || \
+    (sleep 5 && apk update --no-cache && apk add --no-cache git ca-certificates) || \
+    (sleep 10 && apk update --no-cache && apk add --no-cache git ca-certificates)
 
-# Copy shared modules to the correct location
-COPY shared/security ./shared-security
-
-# Copy service files
-COPY services/auth-service/go.mod ./
-
-# Copy go.sum if it exists, otherwise it will be generated
-COPY services/auth-service/go.sum* ./
+# Copy go.mod and go.sum first (for better Docker layer caching)
+COPY services/auth-service/go.mod services/auth-service/go.sum* ./
 
 # Download dependencies with retry mechanism and fallback
 RUN go mod download || (sleep 5 && go mod download) || (sleep 10 && go mod download) || go mod download -x
@@ -29,12 +27,17 @@ RUN go mod download || (sleep 5 && go mod download) || (sleep 10 && go mod downl
 # Copy the rest of the service code
 COPY services/auth-service/ .
 
-# Generate go.sum and build the application
-RUN go mod tidy
+# Generate go.sum and build the application (skip tidy if network fails, use existing go.sum)
+RUN go mod tidy || echo "Warning: go mod tidy failed, using existing go.sum"
 RUN go build -o main .
 
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
+# Use a more recent Alpine version with better network handling
+FROM alpine:3.19
+
+# Add network timeout configurations and retry mechanisms
+RUN apk --no-cache add ca-certificates && \
+    echo "network_timeout=300" >> /etc/apk/repositories && \
+    echo "network_retries=3" >> /etc/apk/repositories
 WORKDIR /root/
 
 COPY --from=builder /app/main .

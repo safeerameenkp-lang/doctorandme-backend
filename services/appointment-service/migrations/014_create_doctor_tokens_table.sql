@@ -1,0 +1,2 @@
+-- This file was created by mistake and can be safely deleted. 
+-- The correct migration is 015_create_doctor_tokens_table.sql

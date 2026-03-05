@@ -1,77 +1,183 @@
 version: '3.8'
 
 services:
-  postgres:
+
+  # Migration services - run migrations for each service
+  auth-migrations:
     image: postgres:15-alpine
     environment:
-      POSTGRES_DB: drandme
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres123
-    ports:
-      - "5432:5432"
+      PGPASSWORD: ${DB_PASSWORD:-postgres123}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d
+      - ./services/auth-service/migrations:/migrations:ro
+    command: >
+      sh -c "
+        until pg_isready -h ${DB_HOST} -p ${DB_PORT} -U ${DB_USER}; do
+          echo 'Waiting for postgres...'
+          sleep 1
+        done
+        for f in /migrations/*.sql; do
+          echo \"Running migration: $$(basename $$f)\"
+          psql \"host=${DB_HOST} port=${DB_PORT} user=${DB_USER} dbname=${DB_NAME} password=${DB_PASSWORD} sslmode=${DB_SSLMODE}\" -f $$f
+        done
+        echo 'Auth service migrations completed!'
+      "
     networks:
       - clinic_network
 
+  organization-migrations:
+    image: postgres:15-alpine
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:-postgres123}
+    volumes:
+      - ./services/organization-service/migrations:/migrations:ro
+    command: >
+      sh -c "
+        until pg_isready -h ${DB_HOST} -p ${DB_PORT} -U ${DB_USER}; do
+          echo 'Waiting for postgres...'
+          sleep 1
+        done
+        for f in /migrations/*.sql; do
+          echo \"Running migration: $$(basename $$f)\"
+          psql \"host=${DB_HOST} port=${DB_PORT} user=${DB_USER} dbname=${DB_NAME} password=${DB_PASSWORD} sslmode=${DB_SSLMODE}\" -f $$f
+        done
+        echo 'Organization service migrations completed!'
+      "
+    networks:
+      - clinic_network
+
+  appointment-migrations:
+    image: postgres:15-alpine
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:-postgres123}
+    volumes:
+      - ./services/appointment-service/migrations:/migrations:ro
+    command: >
+      sh -c "
+        until pg_isready -h ${DB_HOST} -p ${DB_PORT} -U ${DB_USER}; do
+          echo 'Waiting for postgres...'
+          sleep 1
+        done
+        for f in /migrations/*.sql; do
+          echo \"Running migration: $$(basename $$f)\"
+          psql \"host=${DB_HOST} port=${DB_PORT} user=${DB_USER} dbname=${DB_NAME} password=${DB_PASSWORD} sslmode=${DB_SSLMODE}\" -f $$f
+        done
+        echo 'Appointment service migrations completed!'
+      "
+    networks:
+      - clinic_network
+
+  # Kong API Gateway (DB-less mode - uses declarative config)
+  kong:
+    image: kong:3.4
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_PLUGINS: bundled
+      KONG_NGINX_DAEMON: "off"
+    ports:
+      - "8000:8000" # Kong Proxy (API Gateway) - Main entry point
+      - "8001:8001" # Kong Admin API (for management)
+    volumes:
+      - ./kong.yml:/kong/kong.yml:ro
+    depends_on:
+      auth-service:
+        condition: service_started
+      organization-service:
+        condition: service_started
+      appointment-service:
+        condition: service_started
+    networks:
+      - clinic_network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "kong", "health" ]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+
   auth-service:
-    build: 
+    build:
       context: .
       dockerfile: services/auth-service/Dockerfile
-    ports:
-      - "8080:8080"
+    # Removed direct port exposure - access only through Kong
+    expose:
+      - "8080"
     environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres123
-      DB_NAME: drandme
-      JWT_ACCESS_SECRET: your-access-secret-key-here
-      JWT_REFRESH_SECRET: your-refresh-secret-key-here
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_SSLMODE: ${DB_SSLMODE}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-your-access-secret-key-here}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your-refresh-secret-key-here}
       PORT: 8080
     depends_on:
-      - postgres
+      auth-migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
     networks:
       - clinic_network
 
   organization-service:
-    build: 
+    build:
       context: .
       dockerfile: services/organization-service/Dockerfile
-    ports:
-      - "8081:8081"
+    # Removed direct port exposure - access only through Kong
+    expose:
+      - "8081"
     environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres123
-      DB_NAME: drandme
-      JWT_ACCESS_SECRET: your-access-secret-key-here
-      JWT_REFRESH_SECRET: your-refresh-secret-key-here
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_SSLMODE: ${DB_SSLMODE}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-your-access-secret-key-here}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your-refresh-secret-key-here}
       PORT: 8081
+    volumes:
+      - ./services/organization-service/uploads:/root/uploads
     depends_on:
-      - postgres
+      auth-migrations:
+        condition: service_completed_successfully
+      organization-migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
     networks:
       - clinic_network
 
   appointment-service:
-    build: 
+    build:
       context: .
       dockerfile: services/appointment-service/Dockerfile
-    ports:
-      - "8082:8082"
+    # Removed direct port exposure - access only through Kong
+    expose:
+      - "8082"
     environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres123
-      DB_NAME: drandme
-      JWT_ACCESS_SECRET: your-access-secret-key-here
-      JWT_REFRESH_SECRET: your-refresh-secret-key-here
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_SSLMODE: ${DB_SSLMODE}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-your-access-secret-key-here}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your-refresh-secret-key-here}
       PORT: 8082
     depends_on:
-      - postgres
+      auth-migrations:
+        condition: service_completed_successfully
+      organization-migrations:
+        condition: service_completed_successfully
+      appointment-migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
     networks:
       - clinic_network
 
@@ -82,17 +188,16 @@ services:
       PGADMIN_DEFAULT_PASSWORD: admin123
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     ports:
-      - "5050:80"
+      - "5051:80" # Changed from 5050 to 5051 to avoid port conflict
     volumes:
       - pgadmin_data:/var/lib/pgadmin
-    depends_on:
-      - postgres
     networks:
       - clinic_network
+    restart: unless-stopped
 
 volumes:
-  postgres_data:
   pgadmin_data:
+
 
 networks:
   clinic_network:
