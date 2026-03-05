@@ -106,9 +106,12 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
       DB_SSLMODE: ${DB_SSLMODE}
+      DB_SSLROOTCERT: /rds-global-bundle.pem
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-your-access-secret-key-here}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your-refresh-secret-key-here}
       PORT: 8080
+    volumes:
+      - /home/ubuntu/rds-global-bundle.pem:/rds-global-bundle.pem:ro
     depends_on:
       auth-migrations:
         condition: service_completed_successfully
@@ -129,11 +132,13 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
       DB_SSLMODE: ${DB_SSLMODE}
+      DB_SSLROOTCERT: /rds-global-bundle.pem
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-your-access-secret-key-here}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your-refresh-secret-key-here}
       PORT: 8081
     volumes:
       - ./services/organization-service/uploads:/root/uploads
+      - /home/ubuntu/rds-global-bundle.pem:/rds-global-bundle.pem:ro
     depends_on:
       auth-migrations:
         condition: service_completed_successfully
@@ -156,9 +161,12 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
       DB_SSLMODE: ${DB_SSLMODE}
+      DB_SSLROOTCERT: /rds-global-bundle.pem
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-your-access-secret-key-here}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your-refresh-secret-key-here}
       PORT: 8082
+    volumes:
+      - /home/ubuntu/rds-global-bundle.pem:/rds-global-bundle.pem:ro
     depends_on:
       auth-migrations:
         condition: service_completed_successfully
