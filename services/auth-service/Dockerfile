@@ -42,6 +42,8 @@ RUN apk --no-cache add ca-certificates postgresql-client && \
 WORKDIR /root/
 
 COPY --from=builder /app/main .
+COPY wait-for-postgres.sh /wait-for-postgres.sh
+RUN chmod +x /wait-for-postgres.sh
 
 EXPOSE 8080
 CMD ["./main"]

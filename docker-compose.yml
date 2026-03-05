@@ -16,7 +16,6 @@ services:
       DB_SSLMODE: ${DB_SSLMODE}
     volumes:
       - ./services/auth-service/migrations:/migrations:ro
-      - ./wait-for-postgres.sh:/wait-for-postgres.sh
     entrypoint: [ "/wait-for-postgres.sh", "${DB_HOST}" ]
     command: >
       sh -c "for f in /migrations/*.sql; do
@@ -38,7 +37,6 @@ services:
       DB_SSLMODE: ${DB_SSLMODE}
     volumes:
       - ./services/organization-service/migrations:/migrations:ro
-      - ./wait-for-postgres.sh:/wait-for-postgres.sh
     entrypoint: [ "/wait-for-postgres.sh", "${DB_HOST}" ]
     command: >
       sh -c "for f in /migrations/*.sql; do
@@ -60,7 +58,6 @@ services:
       DB_SSLMODE: ${DB_SSLMODE}
     volumes:
       - ./services/appointment-service/migrations:/migrations:ro
-      - ./wait-for-postgres.sh:/wait-for-postgres.sh
     entrypoint: [ "/wait-for-postgres.sh", "${DB_HOST}" ]
     command: >
       sh -c "for f in /migrations/*.sql; do
