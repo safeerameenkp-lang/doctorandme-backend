@@ -12,8 +12,10 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
       DB_SSLMODE: ${DB_SSLMODE}
+      DB_SSLROOTCERT: /rds-global-bundle.pem
     volumes:
       - ./services/auth-service/migrations:/migrations:ro
+      - /home/ubuntu/rds-global-bundle.pem:/rds-global-bundle.pem:ro
     entrypoint: [ "sh", "-c" ]
     command: |
       echo 'Checking database connection...'
@@ -41,8 +43,10 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
       DB_SSLMODE: ${DB_SSLMODE}
+      DB_SSLROOTCERT: /rds-global-bundle.pem
     volumes:
       - ./services/organization-service/migrations:/migrations:ro
+      - /home/ubuntu/rds-global-bundle.pem:/rds-global-bundle.pem:ro
     entrypoint: [ "sh", "-c" ]
     command: |
       echo 'Checking database connection...'
@@ -70,8 +74,10 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
       DB_SSLMODE: ${DB_SSLMODE}
+      DB_SSLROOTCERT: /rds-global-bundle.pem
     volumes:
       - ./services/appointment-service/migrations:/migrations:ro
+      - /home/ubuntu/rds-global-bundle.pem:/rds-global-bundle.pem:ro
     entrypoint: [ "sh", "-c" ]
     command: |
       echo 'Checking database connection...'
