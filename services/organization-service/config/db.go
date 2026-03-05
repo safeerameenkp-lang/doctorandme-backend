@@ -22,6 +22,10 @@ func ConnectDB() {
 		os.Getenv("DB_SSLMODE"),
 	)
 
+	if sslRootCert := os.Getenv("DB_SSLROOTCERT"); sslRootCert != "" {
+		dsn = fmt.Sprintf("%s sslrootcert=%s", dsn, sslRootCert)
+	}
+
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		log.Fatalf("DB connection error: %v", err)

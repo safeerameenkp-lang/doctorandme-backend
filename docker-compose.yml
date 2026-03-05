@@ -27,7 +27,7 @@ services:
       for f in /migrations/*.sql; do
         if [ -f "$$f" ]; then
           echo "Running $$f"
-          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE" -f "$$f"
+          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f"
         fi
       done
       echo 'Auth migrations done'
@@ -58,7 +58,7 @@ services:
       for f in /migrations/*.sql; do
         if [ -f "$$f" ]; then
           echo "Running $$f"
-          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE" -f "$$f"
+          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f"
         fi
       done
       echo 'Organization migrations done'
@@ -89,7 +89,7 @@ services:
       for f in /migrations/*.sql; do
         if [ -f "$$f" ]; then
           echo "Running $$f"
-          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE" -f "$$f"
+          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f"
         fi
       done
       echo 'Appointment migrations done'
