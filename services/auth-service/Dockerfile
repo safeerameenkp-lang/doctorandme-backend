@@ -35,7 +35,8 @@ RUN go build -o main .
 FROM alpine:3.19
 
 # Add network timeout configurations and retry mechanisms
-RUN apk --no-cache add ca-certificates && \
+# Add network timeout configurations, retry mechanisms, and postgresql-client for migrations
+RUN apk --no-cache add ca-certificates postgresql-client && \
     echo "network_timeout=300" >> /etc/apk/repositories && \
     echo "network_retries=3" >> /etc/apk/repositories
 WORKDIR /root/

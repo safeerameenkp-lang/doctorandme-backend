@@ -6,7 +6,7 @@ services:
   # Migration services
   # ----------------------
   auth-migrations:
-    image: doctorandme-backend-auth-service   # Use your service image
+    image: doctorandme-backend-auth-service # Use your service image
     environment:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
@@ -16,18 +16,14 @@ services:
       DB_SSLMODE: ${DB_SSLMODE}
     volumes:
       - ./services/auth-service/migrations:/migrations:ro
+      - ./wait-for-postgres.sh:/wait-for-postgres.sh
+    entrypoint: [ "/wait-for-postgres.sh", "${DB_HOST}" ]
     command: >
-      sh -c "
-        until pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER; do
-          echo 'Waiting for postgres...'
-          sleep 2
-        done
-        for f in /migrations/*.sql; do
-          echo Running migration: $$(basename $$f)
-          psql \"host=$DB_HOST port=$DB_PORT user=$DB_USER dbname=$DB_NAME password=$DB_PASSWORD sslmode=$DB_SSLMODE\" -f $$f
-        done
-        echo 'Auth service migrations completed!'
-      "
+      sh -c "for f in /migrations/*.sql; do
+               echo Running $$f
+               psql \"host=$DB_HOST port=$DB_PORT user=$DB_USER dbname=$DB_NAME password=$DB_PASSWORD sslmode=$DB_SSLMODE\" -f $$f
+             done
+             echo 'Auth migrations done'"
     networks:
       - clinic_network
 
@@ -42,18 +38,14 @@ services:
       DB_SSLMODE: ${DB_SSLMODE}
     volumes:
       - ./services/organization-service/migrations:/migrations:ro
+      - ./wait-for-postgres.sh:/wait-for-postgres.sh
+    entrypoint: [ "/wait-for-postgres.sh", "${DB_HOST}" ]
     command: >
-      sh -c "
-        until pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER; do
-          echo 'Waiting for postgres...'
-          sleep 2
-        done
-        for f in /migrations/*.sql; do
-          echo Running migration: $$(basename $$f)
-          psql \"host=$DB_HOST port=$DB_PORT user=$DB_USER dbname=$DB_NAME password=$DB_PASSWORD sslmode=$DB_SSLMODE\" -f $$f
-        done
-        echo 'Organization service migrations completed!'
-      "
+      sh -c "for f in /migrations/*.sql; do
+               echo Running $$f
+               psql \"host=$DB_HOST port=$DB_PORT user=$DB_USER dbname=$DB_NAME password=$DB_PASSWORD sslmode=$DB_SSLMODE\" -f $$f
+             done
+             echo 'Organization migrations done'"
     networks:
       - clinic_network
 
@@ -68,18 +60,14 @@ services:
       DB_SSLMODE: ${DB_SSLMODE}
     volumes:
       - ./services/appointment-service/migrations:/migrations:ro
+      - ./wait-for-postgres.sh:/wait-for-postgres.sh
+    entrypoint: [ "/wait-for-postgres.sh", "${DB_HOST}" ]
     command: >
-      sh -c "
-        until pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER; do
-          echo 'Waiting for postgres...'
-          sleep 2
-        done
-        for f in /migrations/*.sql; do
-          echo Running migration: $$(basename $$f)
-          psql \"host=$DB_HOST port=$DB_PORT user=$DB_USER dbname=$DB_NAME password=$DB_PASSWORD sslmode=$DB_SSLMODE\" -f $$f
-        done
-        echo 'Appointment service migrations completed!'
-      "
+      sh -c "for f in /migrations/*.sql; do
+               echo Running $$f
+               psql \"host=$DB_HOST port=$DB_PORT user=$DB_USER dbname=$DB_NAME password=$DB_PASSWORD sslmode=$DB_SSLMODE\" -f $$f
+             done
+             echo 'Appointment migrations done'"
     networks:
       - clinic_network
 
@@ -193,7 +181,7 @@ services:
       - clinic_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "kong", "health"]
+      test: [ "CMD", "kong", "health" ]
       interval: 10s
       timeout: 10s
       retries: 3
@@ -220,6 +208,7 @@ services:
 # ----------------------
 volumes:
   pgadmin_data:
+
 
 networks:
   clinic_network:
