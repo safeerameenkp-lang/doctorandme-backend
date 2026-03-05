@@ -198,6 +198,8 @@ services:
         condition: service_started
     networks:
       - clinic_network
+    volumes:
+      - ./kong.yml:/kong/kong.yml:ro
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "kong", "health" ]
