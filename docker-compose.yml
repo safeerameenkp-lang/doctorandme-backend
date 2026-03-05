@@ -97,8 +97,8 @@ services:
     build:
       context: .
       dockerfile: services/auth-service/Dockerfile
-    expose:
-      - "8080"
+    ports:
+      - "8080:8080"
     environment:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
@@ -120,8 +120,8 @@ services:
     build:
       context: .
       dockerfile: services/organization-service/Dockerfile
-    expose:
-      - "8081"
+    ports:
+      - "8081:8081"
     environment:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
@@ -147,8 +147,8 @@ services:
     build:
       context: .
       dockerfile: services/appointment-service/Dockerfile
-    expose:
-      - "8082"
+    ports:
+      - "8082:8082"
     environment:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
