@@ -1,31 +1,18 @@
-#!/bin/bash
-# Organization Service Migration Runner
-# This script runs all migrations in order for the organization-service
+#!/bin/sh
+echo "Waiting for database..."
+until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER"; do
+  echo "Postgres not ready, sleeping 2s..."
+  sleep 2
+done
 
-set -e
-
-DB_HOST="${DB_HOST:-postgres}"
-DB_PORT="${DB_PORT:-5432}"
-DB_USER="${DB_USER:-postgres}"
-DB_PASSWORD="${DB_PASSWORD:-postgres123}"
-DB_NAME="${DB_NAME:-drandme}"
-
+echo "Database ready. Running organization migrations..."
 export PGPASSWORD="$DB_PASSWORD"
 
-echo "Running organization-service migrations..."
-echo "Database: $DB_NAME@$DB_HOST:$DB_PORT"
-
-# Wait for database to be ready
-until psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c '\q' 2>/dev/null; do
-  echo "Waiting for database to be ready..."
-  sleep 1
+for f in /migrations/*.sql; do
+  if [ -f "$f" ]; then
+    echo "Running $f"
+    psql "host=$DB_HOST port=$DB_PORT user=$DB_USER dbname=$DB_NAME sslmode=$DB_SSLMODE sslrootcert=$DB_SSLROOTCERT" -f "$f"
+  fi
 done
 
-# Run migrations in order
-for migration in $(ls -1 *.sql | sort); do
-  echo "Running migration: $migration"
-  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$migration"
-done
-
-echo "Organization service migrations completed successfully!"
-
+echo "Organization migrations completed!"

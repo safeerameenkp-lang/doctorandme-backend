@@ -7,34 +7,15 @@ services:
     build:
       context: .
       dockerfile: services/auth-service/Dockerfile
+    env_file:
+      - .env
     environment:
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      DB_SSLMODE: ${DB_SSLMODE}
       DB_SSLROOTCERT: /certs/rds-global-bundle.pem
       DB_SSL_CERT: /certs/rds-global-bundle.pem
     volumes:
       - ./services/auth-service/migrations:/migrations:ro
       - ./certs/rds-global-bundle.pem:/certs/rds-global-bundle.pem:ro
-    entrypoint: [ "sh", "-c" ]
-    command: |
-      echo 'Waiting for database...';
-      until pg_isready -h $$DB_HOST -p $$DB_PORT -U $$DB_USER; do
-        echo 'Postgres not ready, sleeping 2s...';
-        sleep 2;
-      done;
-      echo 'Database ready, running migrations...';
-      export PGPASSWORD="$$DB_PASSWORD"
-      for f in /migrations/*.sql; do
-        if [ -f "$$f" ]; then
-          echo "Running $$f";
-          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f";
-        fi;
-      done;
-      echo 'Migrations done';
+    entrypoint: [ "sh", "/migrations/run-migrations.sh" ]
     networks:
       - clinic_network
 
@@ -42,34 +23,15 @@ services:
     build:
       context: .
       dockerfile: services/organization-service/Dockerfile
+    env_file:
+      - .env
     environment:
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      DB_SSLMODE: ${DB_SSLMODE}
       DB_SSLROOTCERT: /certs/rds-global-bundle.pem
       DB_SSL_CERT: /certs/rds-global-bundle.pem
     volumes:
       - ./services/organization-service/migrations:/migrations:ro
       - ./certs/rds-global-bundle.pem:/certs/rds-global-bundle.pem:ro
-    entrypoint: [ "sh", "-c" ]
-    command: |
-      echo 'Waiting for database...';
-      until pg_isready -h $$DB_HOST -p $$DB_PORT -U $$DB_USER; do
-        echo 'Postgres not ready, sleeping 2s...';
-        sleep 2;
-      done;
-      echo 'Database ready, running migrations...';
-      export PGPASSWORD="$$DB_PASSWORD"
-      for f in /migrations/*.sql; do
-        if [ -f "$$f" ]; then
-          echo "Running $$f";
-          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f";
-        fi;
-      done;
-      echo 'Migrations done';
+    entrypoint: [ "sh", "/migrations/run-migrations.sh" ]
     networks:
       - clinic_network
 
@@ -77,34 +39,15 @@ services:
     build:
       context: .
       dockerfile: services/appointment-service/Dockerfile
+    env_file:
+      - .env
     environment:
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      DB_SSLMODE: ${DB_SSLMODE}
       DB_SSLROOTCERT: /certs/rds-global-bundle.pem
       DB_SSL_CERT: /certs/rds-global-bundle.pem
     volumes:
       - ./services/appointment-service/migrations:/migrations:ro
       - ./certs/rds-global-bundle.pem:/certs/rds-global-bundle.pem:ro
-    entrypoint: [ "sh", "-c" ]
-    command: |
-      echo 'Waiting for database...';
-      until pg_isready -h $$DB_HOST -p $$DB_PORT -U $$DB_USER; do
-        echo 'Postgres not ready, sleeping 2s...';
-        sleep 2;
-      done;
-      echo 'Database ready, running migrations...';
-      export PGPASSWORD="$$DB_PASSWORD"
-      for f in /migrations/*.sql; do
-        if [ -f "$$f" ]; then
-          echo "Running $$f";
-          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f";
-        fi;
-      done;
-      echo 'Migrations done';
+    entrypoint: [ "sh", "/migrations/run-migrations.sh" ]
     networks:
       - clinic_network
 
@@ -117,17 +60,11 @@ services:
       dockerfile: services/auth-service/Dockerfile
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      DB_SSLMODE: ${DB_SSLMODE}
       DB_SSLROOTCERT: /certs/rds-global-bundle.pem
       DB_SSL_CERT: /certs/rds-global-bundle.pem
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-your-access-secret-key-here}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your-refresh-secret-key-here}
       PORT: 8080
     volumes:
       - ./certs/rds-global-bundle.pem:/certs/rds-global-bundle.pem:ro
@@ -148,17 +85,11 @@ services:
       dockerfile: services/organization-service/Dockerfile
     ports:
       - "8081:8081"
+    env_file:
+      - .env
     environment:
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      DB_SSLMODE: ${DB_SSLMODE}
       DB_SSLROOTCERT: /certs/rds-global-bundle.pem
       DB_SSL_CERT: /certs/rds-global-bundle.pem
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-your-access-secret-key-here}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your-refresh-secret-key-here}
       PORT: 8081
     volumes:
       - ./services/organization-service/uploads:/root/uploads
@@ -180,17 +111,11 @@ services:
       dockerfile: services/appointment-service/Dockerfile
     ports:
       - "8082:8082"
+    env_file:
+      - .env
     environment:
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      DB_SSLMODE: ${DB_SSLMODE}
       DB_SSLROOTCERT: /certs/rds-global-bundle.pem
       DB_SSL_CERT: /certs/rds-global-bundle.pem
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-your-access-secret-key-here}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your-refresh-secret-key-here}
       PORT: 8082
     volumes:
       - ./certs/rds-global-bundle.pem:/certs/rds-global-bundle.pem:ro
