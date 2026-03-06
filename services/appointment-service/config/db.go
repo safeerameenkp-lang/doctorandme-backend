@@ -22,7 +22,12 @@ func ConnectDB() {
 		os.Getenv("DB_SSLMODE"),
 	)
 
-	if sslRootCert := os.Getenv("DB_SSLROOTCERT"); sslRootCert != "" {
+	sslRootCert := os.Getenv("DB_SSL_CERT")
+	if sslRootCert == "" {
+		sslRootCert = os.Getenv("DB_SSLROOTCERT")
+	}
+
+	if sslRootCert != "" {
 		dsn = fmt.Sprintf("%s sslrootcert=%s", dsn, sslRootCert)
 		log.Printf("Using SSL root cert: %s", sslRootCert)
 	}
