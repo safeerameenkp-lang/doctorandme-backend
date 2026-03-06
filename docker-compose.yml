@@ -4,7 +4,9 @@ services:
   # Migration services
   # ----------------------
   auth-migrations:
-    image: doctorandme-backend-auth-service # Use your service image
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
     environment:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
@@ -25,10 +27,11 @@ services:
         sleep 2;
       done;
       echo 'Database ready, running migrations...';
+      export PGPASSWORD="$$DB_PASSWORD"
       for f in /migrations/*.sql; do
         if [ -f "$$f" ]; then
           echo "Running $$f";
-          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f";
+          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f";
         fi;
       done;
       echo 'Migrations done';
@@ -36,7 +39,9 @@ services:
       - clinic_network
 
   organization-migrations:
-    image: doctorandme-backend-organization-service
+    build:
+      context: .
+      dockerfile: services/organization-service/Dockerfile
     environment:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
@@ -57,10 +62,11 @@ services:
         sleep 2;
       done;
       echo 'Database ready, running migrations...';
+      export PGPASSWORD="$$DB_PASSWORD"
       for f in /migrations/*.sql; do
         if [ -f "$$f" ]; then
           echo "Running $$f";
-          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f";
+          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f";
         fi;
       done;
       echo 'Migrations done';
@@ -68,7 +74,9 @@ services:
       - clinic_network
 
   appointment-migrations:
-    image: doctorandme-backend-appointment-service
+    build:
+      context: .
+      dockerfile: services/appointment-service/Dockerfile
     environment:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
@@ -89,10 +97,11 @@ services:
         sleep 2;
       done;
       echo 'Database ready, running migrations...';
+      export PGPASSWORD="$$DB_PASSWORD"
       for f in /migrations/*.sql; do
         if [ -f "$$f" ]; then
           echo "Running $$f";
-          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f";
+          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f";
         fi;
       done;
       echo 'Migrations done';
