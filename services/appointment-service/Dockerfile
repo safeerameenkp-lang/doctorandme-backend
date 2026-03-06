@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install git and ca-certificates for better network reliability with retry
 # Try installing first (may use cached packages), then update if needed
