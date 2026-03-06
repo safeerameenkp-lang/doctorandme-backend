@@ -12,7 +12,7 @@ CREATE INDEX IF NOT EXISTS idx_users_username_exists ON users(username);
 
 -- 3. Optimize Refresh Token Verifications
 -- Fast mapping for the FOR UPDATE SKIP LOCKED row checks (Token verification / invalidation)
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_verification ON refresh_tokens (user_id, token) WHERE expires_at > CURRENT_TIMESTAMP AND revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_verification ON refresh_tokens (user_id, token) WHERE revoked_at IS NULL;
 
 -- 4. Optimize Role Based Access Control (RBAC) - Extremely Critical
 -- Every single API request passes through the middleware which rapidly queries user_roles and roles.
