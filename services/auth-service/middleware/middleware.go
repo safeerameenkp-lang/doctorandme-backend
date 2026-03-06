@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -521,32 +520,47 @@ func RequireAnyAdmin(db Database) gin.HandlerFunc {
 }
 
 func CORSMiddleware() gin.HandlerFunc {
+	// Whitelisted origins for production and development
+	allowedOrigins := map[string]bool{
+		"https://doctorandmeonline.com":     true,
+		"https://www.doctorandmeonline.com": true,
+		"http://localhost":                  true,
+		"http://127.0.0.1":                  true,
+	}
+
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
-		log.Printf("CORS Request from Origin: %s", origin)
 
-		allowOrigin := ""
+		// Default to "*" for public access without credentials
+		allowOrigin := "*"
+		allowCredentials := "false"
 
+		// Dynamic check for origin
 		if origin != "" {
-			// Allow any localhost or 127.0.0.1
-			if strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:") {
-				allowOrigin = origin
-			} else {
-				// Optionally allow other production origins
-				allowOrigin = origin // or "*" if you want to allow all
+			isAllowed := allowedOrigins[origin]
+
+			// Also allow localhost/127.0.0.1 with any port for development (common in Flutter/Vite)
+			if !isAllowed && (strings.HasPrefix(origin, "http://localhost") || strings.HasPrefix(origin, "http://127.0.0.1")) {
+				isAllowed = true
 			}
-		} else {
-			allowOrigin = "*" // no origin header? allow all
+
+			if isAllowed {
+				allowOrigin = origin
+				allowCredentials = "true"
+			}
 		}
 
 		c.Header("Access-Control-Allow-Origin", allowOrigin)
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, X-File-Name")
-		c.Header("Access-Control-Allow-Credentials", "true")
+		if allowCredentials == "true" {
+			c.Header("Access-Control-Allow-Credentials", "true")
+		}
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, X-File-Name, X-Forwarded-Proto")
 		c.Header("Access-Control-Max-Age", "86400")
 
+		// Handle OPTIONS preflight requests
 		if c.Request.Method == http.MethodOptions {
-			c.AbortWithStatus(204)
+			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
 
