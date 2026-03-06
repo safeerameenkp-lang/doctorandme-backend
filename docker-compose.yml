@@ -19,19 +19,19 @@ services:
       - ./certs/rds-global-bundle.pem:/certs/rds-global-bundle.pem:ro
     entrypoint: [ "sh", "-c" ]
     command: |
-      echo 'Checking database connection...'
-      until pg_isready -h "$$DB_HOST" -p "$$DB_PORT" -U "$$DB_USER"; do
-        echo 'Waiting for postgres...'
-        sleep 2
-      done
-      echo 'Database is ready, running migrations...'
+      echo 'Waiting for database...';
+      until pg_isready -h $$DB_HOST -p $$DB_PORT -U $$DB_USER; do
+        echo 'Postgres not ready, sleeping 2s...';
+        sleep 2;
+      done;
+      echo 'Database ready, running migrations...';
       for f in /migrations/*.sql; do
         if [ -f "$$f" ]; then
-          echo "Running $$f"
-          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f"
-        fi
-      done
-      echo 'Auth migrations done'
+          echo "Running $$f";
+          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f";
+        fi;
+      done;
+      echo 'Migrations done';
     networks:
       - clinic_network
 
@@ -51,19 +51,19 @@ services:
       - ./certs/rds-global-bundle.pem:/certs/rds-global-bundle.pem:ro
     entrypoint: [ "sh", "-c" ]
     command: |
-      echo 'Checking database connection...'
-      until pg_isready -h "$$DB_HOST" -p "$$DB_PORT" -U "$$DB_USER"; do
-        echo 'Waiting for postgres...'
-        sleep 2
-      done
-      echo 'Database is ready, running migrations...'
+      echo 'Waiting for database...';
+      until pg_isready -h $$DB_HOST -p $$DB_PORT -U $$DB_USER; do
+        echo 'Postgres not ready, sleeping 2s...';
+        sleep 2;
+      done;
+      echo 'Database ready, running migrations...';
       for f in /migrations/*.sql; do
         if [ -f "$$f" ]; then
-          echo "Running $$f"
-          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f"
-        fi
-      done
-      echo 'Organization migrations done'
+          echo "Running $$f";
+          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f";
+        fi;
+      done;
+      echo 'Migrations done';
     networks:
       - clinic_network
 
@@ -83,19 +83,19 @@ services:
       - ./certs/rds-global-bundle.pem:/certs/rds-global-bundle.pem:ro
     entrypoint: [ "sh", "-c" ]
     command: |
-      echo 'Checking database connection...'
-      until pg_isready -h "$$DB_HOST" -p "$$DB_PORT" -U "$$DB_USER"; do
-        echo 'Waiting for postgres...'
-        sleep 2
-      done
-      echo 'Database is ready, running migrations...'
+      echo 'Waiting for database...';
+      until pg_isready -h $$DB_HOST -p $$DB_PORT -U $$DB_USER; do
+        echo 'Postgres not ready, sleeping 2s...';
+        sleep 2;
+      done;
+      echo 'Database ready, running migrations...';
       for f in /migrations/*.sql; do
         if [ -f "$$f" ]; then
-          echo "Running $$f"
-          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f"
-        fi
-      done
-      echo 'Appointment migrations done'
+          echo "Running $$f";
+          psql "host=$$DB_HOST port=$$DB_PORT user=$$DB_USER dbname=$$DB_NAME password=$$DB_PASSWORD sslmode=$$DB_SSLMODE sslrootcert=$$DB_SSLROOTCERT" -f "$$f";
+        fi;
+      done;
+      echo 'Migrations done';
     networks:
       - clinic_network
 
@@ -124,6 +124,10 @@ services:
       - ./certs/rds-global-bundle.pem:/certs/rds-global-bundle.pem:ro
     depends_on:
       auth-migrations:
+        condition: service_completed_successfully
+      organization-migrations:
+        condition: service_completed_successfully
+      appointment-migrations:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
@@ -154,6 +158,8 @@ services:
       auth-migrations:
         condition: service_completed_successfully
       organization-migrations:
+        condition: service_completed_successfully
+      appointment-migrations:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
