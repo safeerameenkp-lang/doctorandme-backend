@@ -423,7 +423,8 @@ func RescheduleAppointmentDetails(c *gin.Context) {
 		newConsultationType, input.Reason, input.Notes, appointmentID)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update appointment"})
+		log.Printf("ERROR: RescheduleAppointmentDetails update failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update appointment", "details": err.Error()})
 		return
 	}
 
