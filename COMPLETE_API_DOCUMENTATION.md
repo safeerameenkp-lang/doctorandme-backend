@@ -1071,12 +1071,20 @@ Headers: Authorization: Bearer <token>
 Roles: clinic_admin, doctor
 ```
 
-##### 27. Get Patient Vitals History
+##### 27. Get Patient Vitals History ⭐
 ```
 GET /api/v1/vitals/patient/:patient_id/history
-Headers: Authorization: Bearer <token>
-Roles: clinic_admin, doctor, receptionist
+GET /api/v1/vitals/clinic-patient/:patient_id
 ```
+**Headers:** `Authorization: Bearer <token>`
+**Roles:** clinic_admin, doctor, receptionist
+
+##### 28. Get Patient Appointment History ⭐ (New)
+```
+GET /api/v1/appointments/history/:patient_id
+```
+**Headers:** `Authorization: Bearer <token>`
+**Roles:** clinic_admin, doctor, receptionist
 
 ##### Reports
 

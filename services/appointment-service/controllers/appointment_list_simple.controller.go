@@ -159,6 +159,7 @@ func GetSimpleAppointmentDetails(c *gin.Context) {
 			a.id,
 			a.token_number,
 			cp.mo_id,
+			cp.phone,
 			a.clinic_patient_id,
 			COALESCE(cp.first_name || ' ' || cp.last_name, cp.first_name, 'Unknown') as patient_name,
 			COALESCE(u.first_name || ' ' || u.last_name, u.first_name, 'Unknown Doctor') as doctor_name,

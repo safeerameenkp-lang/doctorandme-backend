@@ -198,12 +198,15 @@ func GetVitals(c *gin.Context) {
                pv.height_cm, pv.weight_kg, pv.bmi, pv.smoking_status, pv.alcohol_use, pv.notes,
                pv.recorded_by, pv.recorded_at, pv.updated_at,
                a.booking_number, a.appointment_time, a.status,
-               u.first_name, u.last_name, u.phone,
+               COALESCE(u.first_name, cp.first_name, 'Unknown') as first_name, 
+               COALESCE(u.last_name, cp.last_name, '') as last_name, 
+               COALESCE(u.phone, cp.phone, '') as phone,
                du.first_name as doctor_first_name, du.last_name as doctor_last_name
         FROM patient_vitals pv
         LEFT JOIN appointments a ON a.id = pv.appointment_id
         LEFT JOIN patients p ON p.id = a.patient_id
         LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN clinic_patients cp ON cp.id = pv.clinic_patient_id
         LEFT JOIN doctors d ON d.id = a.doctor_id
         LEFT JOIN users du ON du.id = d.user_id
         WHERE 1=1
@@ -303,12 +306,15 @@ func GetVitalsByAppointment(c *gin.Context) {
                pv.height_cm, pv.weight_kg, pv.bmi, pv.smoking_status, pv.alcohol_use, pv.notes,
                pv.recorded_by, pv.recorded_at, pv.updated_at,
                a.booking_number, a.appointment_time, a.status,
-               u.first_name, u.last_name, u.phone,
+               COALESCE(u.first_name, cp.first_name, 'Unknown') as first_name, 
+               COALESCE(u.last_name, cp.last_name, '') as last_name, 
+               COALESCE(u.phone, cp.phone, '') as phone,
                du.first_name as doctor_first_name, du.last_name as doctor_last_name
         FROM patient_vitals pv
         LEFT JOIN appointments a ON a.id = pv.appointment_id
         LEFT JOIN patients p ON p.id = a.patient_id
         LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN clinic_patients cp ON cp.id = pv.clinic_patient_id
         LEFT JOIN doctors d ON d.id = a.doctor_id
         LEFT JOIN users du ON du.id = d.user_id
         WHERE pv.appointment_id = $1
@@ -483,15 +489,17 @@ func GetPatientVitalsHistory(c *gin.Context) {
                pv.height_cm, pv.weight_kg, pv.bmi, pv.smoking_status, pv.alcohol_use, pv.notes,
                pv.recorded_at, pv.updated_at,
                a.booking_number, a.appointment_time, a.status,
-               u.first_name, u.last_name, 
+               COALESCE(u.first_name, cp.first_name, 'Unknown') as first_name, 
+               COALESCE(u.last_name, cp.last_name, '') as last_name, 
                du.first_name as doctor_first_name, du.last_name as doctor_last_name
         FROM patient_vitals pv
         LEFT JOIN appointments a ON a.id = pv.appointment_id
         LEFT JOIN patients p ON p.id = a.patient_id
         LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN clinic_patients cp ON cp.id = COALESCE(pv.clinic_patient_id, a.clinic_patient_id)
         LEFT JOIN doctors d ON d.id = a.doctor_id
         LEFT JOIN users du ON du.id = d.user_id
-        WHERE (pv.clinic_patient_id = $1 OR a.patient_id = $1)
+        WHERE (pv.clinic_patient_id = $1 OR a.clinic_patient_id = $1 OR a.patient_id = $1)
         ORDER BY pv.recorded_at DESC LIMIT $2 OFFSET $3
     `
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)

@@ -54,16 +54,19 @@ func GetAppointmentList(c *gin.Context) {
 		offset = 0
 	}
 
-	// Build simplified query for appointment list
+	// Build simplified query for appointment list - Updated to support both Global and Clinic-Specific patients
 	query := `
         SELECT a.id, a.booking_number, a.token_number, a.appointment_time, a.consultation_type, 
                a.status, a.fee_amount, a.payment_status, a.created_at, a.booking_mode,
-               p.mo_id, u.first_name as patient_first_name, u.last_name as patient_last_name,
+               COALESCE(p.mo_id, cp.mo_id) as mo_id, 
+               COALESCE(u.first_name, cp.first_name, 'Unknown') as patient_first_name, 
+               COALESCE(u.last_name, cp.last_name, '') as patient_last_name,
                du.first_name as doctor_first_name, du.last_name as doctor_last_name,
-               dept.name as department_name, d.profile_image
+               dept.name as department_name, d.profile_image, a.clinic_patient_id
         FROM appointments a
-        JOIN patients p ON p.id = a.patient_id
-        JOIN users u ON u.id = p.user_id
+        LEFT JOIN patients p ON p.id = a.patient_id
+        LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN clinic_patients cp ON cp.id = a.clinic_patient_id
         JOIN doctors d ON d.id = a.doctor_id
         JOIN users du ON du.id = d.user_id
         LEFT JOIN departments dept ON dept.id = a.department_id
@@ -83,7 +86,7 @@ func GetAppointmentList(c *gin.Context) {
 		argIndex++
 	}
 	if patientID != "" {
-		query += fmt.Sprintf(" AND a.patient_id = $%d", argIndex)
+		query += fmt.Sprintf(" AND (a.patient_id = $%d OR a.clinic_patient_id = $%d)", argIndex, argIndex)
 		args = append(args, patientID)
 		argIndex++
 	}
@@ -125,7 +128,7 @@ func GetAppointmentList(c *gin.Context) {
 			&appointment.ID, &appointment.BookingNumber, &appointment.TokenNumber, &appointmentTime, &appointment.ConsultationType,
 			&appointment.Status, &appointment.FeeAmount, &appointment.PaymentStatus, &createdAt, &appointment.BookingMode,
 			&moID, &patientFirstName, &patientLastName,
-			&doctorFirstName, &doctorLastName, &departmentName, &doctorImage,
+			&doctorFirstName, &doctorLastName, &departmentName, &doctorImage, &appointment.ClinicPatientID,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})

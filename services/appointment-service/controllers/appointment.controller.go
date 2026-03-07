@@ -559,21 +559,29 @@ func GetAppointments(c *gin.Context) {
 		offset = 0
 	}
 
-	// Build dynamic query with department information
+	// Build dynamic query with department information - Updated to support both Global and Clinic-Specific patients
 	query := `
-        SELECT a.id, a.patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number,
+        SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number,
                a.appointment_date, a.appointment_time, a.duration_minutes, a.consultation_type, 
                a.reason, a.notes, a.status, a.fee_amount, a.payment_status, a.payment_mode, 
                a.is_priority, a.booking_mode, a.created_at,
-               p.user_id, p.mo_id, u.first_name, u.last_name, u.phone, u.email,
-               p.medical_history, p.allergies, p.blood_group,
+               p.user_id, p.mo_id, 
+               COALESCE(u.first_name, cp.first_name, 'Unknown') as first_name, 
+               COALESCE(u.last_name, cp.last_name, '') as last_name, 
+               COALESCE(u.phone, cp.phone, '') as phone, 
+               COALESCE(u.email, cp.email, '') as email,
+               COALESCE(p.medical_history, cp.medical_history, '') as medical_history, 
+               COALESCE(p.allergies, cp.allergies, '') as allergies, 
+               COALESCE(p.blood_group, cp.blood_group, '') as blood_group,
                d.doctor_code, d.specialization, d.consultation_fee, d.follow_up_fee,
                du.first_name as doctor_first_name, du.last_name as doctor_last_name,
                c.clinic_code, c.name as clinic_name, c.phone as clinic_phone, c.address,
-               dept.name as department_name
+               dept.name as department_name,
+               cp.mo_id as cp_mo_id
         FROM appointments a
-        JOIN patients p ON p.id = a.patient_id
-        JOIN users u ON u.id = p.user_id
+        LEFT JOIN patients p ON p.id = a.patient_id
+        LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN clinic_patients cp ON cp.id = a.clinic_patient_id
         JOIN doctors d ON d.id = a.doctor_id
         JOIN users du ON du.id = d.user_id
         JOIN clinics c ON c.id = a.clinic_id
@@ -594,7 +602,7 @@ func GetAppointments(c *gin.Context) {
 		argIndex++
 	}
 	if patientID != "" {
-		query += fmt.Sprintf(" AND a.patient_id = $%d", argIndex)
+		query += fmt.Sprintf(" AND (a.patient_id = $%d OR a.clinic_patient_id = $%d)", argIndex, argIndex)
 		args = append(args, patientID)
 		argIndex++
 	}
@@ -643,36 +651,37 @@ func GetAppointments(c *gin.Context) {
 
 	for rows.Next() {
 		var (
-			appID, patientID, clinicID, doctorID, deptID, bookingNumber string
-			appointmentDate                                             time.Time
-			appointmentTime                                             time.Time
-			durationMinutes                                             int
-			consultationType, reason, notes, status                     string
-			feeAmount                                                   *float64
-			paymentStatus, paymentMode                                  string
-			isPriority                                                  bool
-			bookingMode                                                 string
-			createdAt                                                   time.Time
-			u_userID, p_moID, u_first, u_last, u_phone, u_email         sql.NullString
-			p_medHist, p_allergies, p_bloodGroup                        sql.NullString
-			d_code, d_spec                                              sql.NullString
-			d_fee, d_followFee                                          *float64
-			d_first, d_last                                             string
-			c_code, c_name, c_phone, c_address                          string
-			deptName                                                    sql.NullString
+			appID, patientID, clinicPatientID, clinicID, doctorID, deptID, bookingNumber string
+			appointmentDate                                                              time.Time
+			appointmentTime                                                              time.Time
+			duration_mins                                                                int
+			consultType, reason, notes, status                                           string
+			feeAmount                                                                    *float64
+			payStatus, payMode                                                           string
+			isPriority                                                                   bool
+			bookingMode                                                                  string
+			createdAt                                                                    time.Time
+			u_userID, p_moID, u_first, u_last, u_phone, u_email                          sql.NullString
+			p_medHist, p_allergies, p_bloodGroup                                         sql.NullString
+			d_code, d_spec                                                               sql.NullString
+			d_fee, d_followFee                                                           *float64
+			d_first, d_last                                                              string
+			c_code, c_name, c_phone, c_address                                           string
+			deptName                                                                     sql.NullString
+			cp_moID                                                                      sql.NullString
 		)
 
 		err := rows.Scan(
-			&appID, &patientID, &clinicID, &doctorID, &deptID, &bookingNumber,
-			&appointmentDate, &appointmentTime, &durationMinutes, &consultationType,
-			&reason, &notes, &status, &feeAmount, &paymentStatus, &paymentMode,
+			&appID, &patientID, &clinicPatientID, &clinicID, &doctorID, &deptID, &bookingNumber,
+			&appointmentDate, &appointmentTime, &duration_mins, &consultType,
+			&reason, &notes, &status, &feeAmount, &payStatus, &payMode,
 			&isPriority, &bookingMode, &createdAt,
 			&u_userID, &p_moID, &u_first, &u_last, &u_phone, &u_email,
 			&p_medHist, &p_allergies, &p_bloodGroup,
 			&d_code, &d_spec, &d_fee, &d_followFee,
 			&d_first, &d_last,
 			&c_code, &c_name, &c_phone, &c_address,
-			&deptName,
+			&deptName, &cp_moID,
 		)
 		if err != nil {
 			log.Printf("Scan error: %v", err)
@@ -684,11 +693,11 @@ func GetAppointments(c *gin.Context) {
 			SerialNumber:        serialNumber,
 			PatientName:         u_first.String + " " + u_last.String,
 			DoctorName:          "Dr. " + d_first + " " + d_last,
-			ConsultationType:    consultationType,
+			ConsultationType:    consultType,
 			AppointmentDateTime: appointmentTime.Format("02-01-2006 03:04 PM"),
 			Status:              status,
 			FeeAmount:           feeAmount,
-			PaymentStatus:       paymentStatus,
+			PaymentStatus:       payStatus,
 			BookingNumber:       bookingNumber,
 			BookingMode:         bookingMode,
 			CreatedAt:           createdAt.Format(time.RFC3339),
@@ -696,13 +705,15 @@ func GetAppointments(c *gin.Context) {
 
 		if p_moID.Valid {
 			item.MoID = &p_moID.String
+		} else if cp_moID.Valid {
+			item.MoID = &cp_moID.String
 		}
 		if deptName.Valid {
 			item.Department = &deptName.String
 		}
 
 		item.FeeStatus = "Pay Now"
-		if paymentStatus == "paid" && feeAmount != nil {
+		if payStatus == "paid" && feeAmount != nil {
 			item.FeeStatus = fmt.Sprintf("₹%.2f", *feeAmount)
 		}
 
@@ -733,24 +744,32 @@ func GetAppointment(c *gin.Context) {
 	var clinicInfo models.ClinicInfo
 
 	err := config.DB.QueryRowContext(ctx, `
-        SELECT a.id, a.patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number,
+        SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number,
                a.appointment_date, a.appointment_time, a.duration_minutes, a.consultation_type, 
                a.reason, a.notes, a.status, a.fee_amount, a.payment_status, a.payment_mode, 
                a.is_priority, a.booking_mode, a.created_at,
-               p.user_id, p.mo_id, u.first_name, u.last_name, u.phone, u.email,
-               p.medical_history, p.allergies, p.blood_group,
+               p.user_id, p.mo_id, 
+               COALESCE(u.first_name, cp.first_name, 'Unknown') as first_name, 
+               COALESCE(u.last_name, cp.last_name, '') as last_name, 
+               COALESCE(u.phone, cp.phone, '') as phone, 
+               COALESCE(u.email, cp.email, '') as email,
+               COALESCE(p.medical_history, cp.medical_history, '') as medical_history, 
+               COALESCE(p.allergies, cp.allergies, '') as allergies, 
+               COALESCE(p.blood_group, cp.blood_group, '') as blood_group,
                d.doctor_code, d.specialization, d.consultation_fee, d.follow_up_fee,
                du.first_name as doctor_first_name, du.last_name as doctor_last_name,
-               c.clinic_code, c.name as clinic_name, c.phone as clinic_phone, c.address
+               c.clinic_code, c.name as clinic_name, c.phone as clinic_phone, c.address,
+               cp.mo_id as cp_mo_id
         FROM appointments a
-        JOIN patients p ON p.id = a.patient_id
-        JOIN users u ON u.id = p.user_id
+        LEFT JOIN patients p ON p.id = a.patient_id
+        LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN clinic_patients cp ON cp.id = a.clinic_patient_id
         JOIN doctors d ON d.id = a.doctor_id
         JOIN users du ON du.id = d.user_id
         JOIN clinics c ON c.id = a.clinic_id
         WHERE a.id = $1
     `, appointmentID).Scan(
-		&appointment.ID, &appointment.PatientID, &appointment.ClinicID, &appointment.DoctorID,
+		&appointment.ID, &appointment.PatientID, &appointment.ClinicPatientID, &appointment.ClinicID, &appointment.DoctorID,
 		&appointment.DepartmentID, &appointment.BookingNumber, &appointment.AppointmentDate,
 		&appointment.AppointmentTime, &appointment.DurationMinutes, &appointment.ConsultationType,
 		&appointment.Reason, &appointment.Notes, &appointment.Status, &appointment.FeeAmount,
@@ -761,6 +780,7 @@ func GetAppointment(c *gin.Context) {
 		&doctorInfo.DoctorCode, &doctorInfo.Specialization, &doctorInfo.ConsultationFee,
 		&doctorInfo.FollowUpFee, &doctorInfo.FirstName, &doctorInfo.LastName,
 		&clinicInfo.ClinicCode, &clinicInfo.Name, &clinicInfo.Phone, &clinicInfo.Address,
+		&patientInfo.MOID,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -782,6 +802,111 @@ func GetAppointment(c *gin.Context) {
 	appointment.Clinic = clinicInfo
 
 	c.JSON(http.StatusOK, appointment)
+}
+
+// GetAppointmentHistoryByPatient - Specialized endpoint for patient appointment history
+// Supports filtering by clinic_patient_id (path param)
+func GetAppointmentHistoryByPatient(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	patientID := c.Param("patient_id")
+	if patientID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "patient_id is required"})
+		return
+	}
+
+	limitStr := c.DefaultQuery("limit", "50")
+	limit, _ := strconv.Atoi(limitStr)
+
+	// Broad query that matches both Global and Clinic-Specific patients
+	query := `
+        SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number,
+               a.appointment_date, a.appointment_time, a.duration_minutes, a.consultation_type, 
+               a.reason, a.notes, a.status, a.fee_amount, a.payment_status, a.payment_mode, 
+               a.is_priority, a.booking_mode, a.created_at,
+               COALESCE(u.first_name, cp.first_name, 'Unknown') as first_name, 
+               COALESCE(u.last_name, cp.last_name, '') as last_name, 
+               du.first_name as doctor_first_name, du.last_name as doctor_last_name,
+               c.name as clinic_name,
+               dept.name as department_name,
+               cp.mo_id as cp_mo_id
+        FROM appointments a
+        LEFT JOIN patients p ON p.id = a.patient_id
+        LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN clinic_patients cp ON cp.id = a.clinic_patient_id
+        JOIN doctors d ON d.id = a.doctor_id
+        JOIN users du ON du.id = d.user_id
+        JOIN clinics c ON c.id = a.clinic_id
+        LEFT JOIN departments dept ON dept.id = a.department_id
+        WHERE (a.patient_id = $1 OR a.clinic_patient_id = $1)
+        ORDER BY a.appointment_time DESC LIMIT $2
+    `
+
+	rows, err := config.DB.QueryContext(ctx, query, patientID, limit)
+	if err != nil {
+		log.Printf("ERROR: GetAppointmentHistoryByPatient query failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch appointment history"})
+		return
+	}
+	defer rows.Close()
+
+	var appointments []gin.H
+
+	for rows.Next() {
+		var (
+			appID, pID, cpID, clinicID, docID, deptID, bookingNumber string
+			appDate                                                  time.Time
+			appTime                                                  time.Time
+			durationMins                                             int
+			consultType, reason, notes, status                       string
+			feeAmount                                                *float64
+			payStatus, payMode                                       string
+			isPriority                                               bool
+			bookingMode                                              string
+			createdAt                                                time.Time
+			pFN, pLN, dFN, dLN, clinicName                           string
+			deptName                                                 sql.NullString
+			cpMoID                                                   sql.NullString
+		)
+
+		err := rows.Scan(
+			&appID, &pID, &cpID, &clinicID, &docID, &deptID, &bookingNumber,
+			&appDate, &appTime, &durationMins, &consultType,
+			&reason, &notes, &status, &feeAmount, &payStatus, &payMode,
+			&isPriority, &bookingMode, &createdAt,
+			&pFN, &pLN, &dFN, &dLN, &clinicName,
+			&deptName, &cpMoID,
+		)
+		if err != nil {
+			log.Printf("Scan error: %v", err)
+			continue
+		}
+
+		appointments = append(appointments, gin.H{
+			"id":                    appID,
+			"booking_number":        bookingNumber,
+			"appointment_date_time": appTime.Format("02-01-2006 03:04 PM"),
+			"patient_name":          pFN + " " + pLN,
+			"doctor_name":           "Dr. " + dFN + " " + dLN,
+			"clinic_name":           clinicName,
+			"department":            deptName.String,
+			"consultation_type":     consultType,
+			"status":                status,
+			"fee_amount":            feeAmount,
+			"payment_status":        payStatus,
+			"booking_mode":          bookingMode,
+			"created_at":            createdAt.Format(time.RFC3339),
+			"mo_id":                 cpMoID.String,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":      true,
+		"patient_id":   patientID,
+		"total_count":  len(appointments),
+		"appointments": appointments,
+	})
 }
 
 func UpdateAppointment(c *gin.Context) {
