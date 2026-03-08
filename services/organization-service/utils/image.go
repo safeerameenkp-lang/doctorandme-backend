@@ -99,3 +99,15 @@ func SaveOptimizedImage(file multipart.File, originalFilename string, subDir str
 
 	return dstPath, nil
 }
+
+// DeleteImage removes an image from the filesystem
+func DeleteImage(path string) error {
+	if path == "" {
+		return nil
+	}
+	// Check if file exists before trying to delete
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil // File already gone
+	}
+	return os.Remove(path)
+}

@@ -1,11 +1,14 @@
 package controllers
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"organization-service/config"
 	"organization-service/middleware"
 	"organization-service/models"
+	"organization-service/utils"
 	"regexp"
 	"strings"
 	"time"
@@ -35,7 +38,7 @@ func HealthCheck(c *gin.Context) {
 
 // Organization Controllers
 type CreateOrganizationInput struct {
-	Name          string  `json:"name" binding:"required,min=2,max=255"`
+	Name          string  `json:"name" binding:"required,min=1,max=255"`
 	Email         *string `json:"email" binding:"omitempty,email"`
 	Phone         *string `json:"phone" binding:"omitempty,len=10"`
 	Address       *string `json:"address" binding:"omitempty,max=500"`
@@ -185,9 +188,48 @@ func UpdateOrganization(c *gin.Context) {
 func DeleteOrganization(c *gin.Context) {
 	orgID := c.Param("id")
 
-	result, err := config.DB.Exec(`DELETE FROM organizations WHERE id = $1`, orgID)
+	// Use context with timeout for safety
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	// 1. Find all users associated with this organization before we delete the organization and its roles
+	rows, err := config.DB.QueryContext(ctx, `SELECT DISTINCT user_id FROM user_roles WHERE organization_id = $1`, orgID)
+	var userIDs []string
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var uid string
+			if err := rows.Scan(&uid); err == nil {
+				userIDs = append(userIDs, uid)
+			}
+		}
+	}
+
+	// 1b. Find all clinic logos for cleanup before they are deleted from DB
+	rowsLogos, _ := config.DB.QueryContext(ctx, `SELECT logo FROM clinics WHERE organization_id = $1 AND logo IS NOT NULL`, orgID)
+	var logos []string
+	if rowsLogos != nil {
+		defer rowsLogos.Close()
+		for rowsLogos.Next() {
+			var l string
+			if err := rowsLogos.Scan(&l); err == nil && l != "" {
+				logos = append(logos, l)
+			}
+		}
+	}
+
+	// 2. Start transaction
+	tx, err := config.DB.BeginTx(ctx, nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete organization"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	// 3. Delete the organization
+	result, err := tx.ExecContext(ctx, `DELETE FROM organizations WHERE id = $1`, orgID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete organization: " + err.Error()})
 		return
 	}
 
@@ -197,12 +239,34 @@ func DeleteOrganization(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Organization deleted successfully"})
+	// 4. Cleanup associated users if they are no longer managing anything else
+	for _, uid := range userIDs {
+		var otherLinks int
+		// Check if this user is linked to any other organization or clinic
+		err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND organization_id IS DISTINCT FROM $2`, uid, orgID).Scan(&otherLinks)
+		if err == nil && otherLinks == 0 {
+			// No other associations found, safe to delete the user
+			_, _ = tx.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, uid)
+		}
+	}
+
+	// 5. Commit
+	if err = tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit organization deletion"})
+		return
+	}
+
+	// 6. Post-commit cleanup: Delete clinic logo files from disk
+	for _, logo := range logos {
+		_ = utils.DeleteImage(logo)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Organization and its associated admin(s) deleted successfully"})
 }
 
 // Create organization admin when creating organization
 type CreateOrganizationWithAdminInput struct {
-	Name          string  `json:"name" binding:"required,min=2,max=255"`
+	Name          string  `json:"name" binding:"required,min=1,max=255"`
 	Email         *string `json:"email" binding:"omitempty,email"`
 	Phone         *string `json:"phone" binding:"omitempty,len=10"`
 	Address       *string `json:"address" binding:"omitempty,max=500"`
@@ -211,7 +275,7 @@ type CreateOrganizationWithAdminInput struct {
 	AdminFirstName string `json:"admin_first_name" binding:"max=50"`
 	AdminLastName  string `json:"admin_last_name" binding:"max=50"`
 	AdminEmail     string `json:"admin_email" binding:"required,email"`
-	AdminUsername  string `json:"admin_username" binding:"required,min=3,max=30"`
+	AdminUsername  string `json:"admin_username" binding:"required,min=1,max=30"`
 	AdminPhone     string `json:"admin_phone" binding:"omitempty,len=10"`
 	AdminPassword  string `json:"admin_password" binding:"required,min=8"`
 }
@@ -246,21 +310,6 @@ func CreateOrganizationWithAdmin(c *gin.Context) {
 		}
 	}
 
-	// Check if admin username already exists
-	var existingUserID string
-	err := config.DB.QueryRow(`SELECT id FROM users WHERE username = $1`, input.AdminUsername).Scan(&existingUserID)
-	if err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Admin username already exists"})
-		return
-	}
-
-	// Check if admin email already exists
-	err = config.DB.QueryRow(`SELECT id FROM users WHERE email = $1`, input.AdminEmail).Scan(&existingUserID)
-	if err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Admin email already exists"})
-		return
-	}
-
 	// Start transaction
 	tx, err := config.DB.Begin()
 	if err != nil {
@@ -280,22 +329,33 @@ func CreateOrganizationWithAdmin(c *gin.Context) {
 		return
 	}
 
-	// Hash admin password
-	passHash, err := bcrypt.GenerateFromPassword([]byte(input.AdminPassword), bcrypt.DefaultCost)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash admin password"})
-		return
-	}
-
-	// Create admin user
+	// 1. Check if admin user already exists (by email) to avoid conflicts
 	var adminID string
-	err = tx.QueryRow(`
-        INSERT INTO users (first_name, last_name, email, username, phone, password_hash)
-        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
-    `, input.AdminFirstName, input.AdminLastName, input.AdminEmail, input.AdminUsername, input.AdminPhone, string(passHash)).Scan(&adminID)
+	err = tx.QueryRow(`SELECT id FROM users WHERE email = $1`, input.AdminEmail).Scan(&adminID)
+
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create admin user"})
-		return
+		if err == sql.ErrNoRows {
+			// User does not exist, create new one
+			passHash, err := bcrypt.GenerateFromPassword([]byte(input.AdminPassword), bcrypt.DefaultCost)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash admin password"})
+				return
+			}
+
+			err = tx.QueryRow(`
+                INSERT INTO users (first_name, last_name, email, username, phone, password_hash)
+                VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+            `, input.AdminFirstName, input.AdminLastName, input.AdminEmail, input.AdminUsername, input.AdminPhone, string(passHash)).Scan(&adminID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create admin user: " + err.Error()})
+				return
+			}
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error checking user"})
+			return
+		}
+	} else {
+		// Existing user found, we will simply link them to the new organization
 	}
 
 	// Assign organization_admin role

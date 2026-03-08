@@ -43,57 +43,20 @@ func (s *ClinicService) CreateClinic(ctx context.Context, input models.CreateCli
 		return "", nil, errors.New("user not found")
 	}
 
-	// Check if clinic code already exists if provided
-	if input.ClinicCode != nil && *input.ClinicCode != "" {
-		var existingClinicCode string
-		err = s.DB.QueryRowContext(opCtx, `SELECT id FROM clinics WHERE clinic_code = $1`, *input.ClinicCode).Scan(&existingClinicCode)
-		if err == nil {
-			return "", nil, errors.New("clinic code already exists")
-		}
-	}
-
-	// Check if clinic name already exists in this organization
-	var existingClinicID string
-	err = s.DB.QueryRowContext(opCtx, `SELECT id FROM clinics WHERE organization_id = $1 AND name = $2`, input.OrganizationID, input.Name).Scan(&existingClinicID)
-	if err == nil {
-		return "", nil, errors.New("clinic name already exists in this organization")
-	}
-
-	// Check if clinic email already exists if provided
-	if input.Email != nil && *input.Email != "" {
-		err = s.DB.QueryRowContext(opCtx, `SELECT id FROM clinics WHERE email = $1`, *input.Email).Scan(&existingClinicID)
-		if err == nil {
-			return "", nil, errors.New("clinic email already exists")
-		}
-	}
-
-	// Auto-generate clinic code if missing
-	var clinicCode string
-	if input.ClinicCode != nil && *input.ClinicCode != "" {
-		clinicCode = *input.ClinicCode
-	} else {
-		var err error
-		clinicCode, err = utils.GenerateClinicCode(opCtx, nil, s.DB, input.Name)
-		if err != nil {
-			return "", nil, errors.New("failed to generate clinic code")
-		}
-	}
-
 	// Validate and format ClinicType
 	input.ClinicType = strings.TrimSpace(input.ClinicType)
 	if input.ClinicType == "" {
 		return "", nil, errors.New("clinic_type cannot be empty")
 	}
-	input.ClinicType = strings.Title(strings.ToLower(input.ClinicType)) // Standardize format (e.g., homeopathy -> Homeopathy)
+	input.ClinicType = strings.Title(strings.ToLower(input.ClinicType))
 
-	// Handle Logo Upload
+	// Handle Logo Upload (Do this outside tx to avoid locks during IO)
 	var logoPath *string
 	if logoFile != nil {
 		if err := utils.ValidateImage(logoFile); err != nil {
 			return "", nil, err
 		}
 
-		// Use channel to get result from goroutine
 		type result struct {
 			path string
 			err  error
@@ -112,7 +75,6 @@ func (s *ClinicService) CreateClinic(ctx context.Context, input models.CreateCli
 			resChan <- result{savedPath, err}
 		}()
 
-		// Wait for result
 		res := <-resChan
 		if res.err != nil {
 			return "", nil, res.err
@@ -126,6 +88,18 @@ func (s *ClinicService) CreateClinic(ctx context.Context, input models.CreateCli
 		return "", nil, errors.New("failed to start transaction")
 	}
 	defer tx.Rollback()
+
+	// Auto-generate clinic code if missing (Inside transaction for locking)
+	var clinicCode string
+	if input.ClinicCode != nil && *input.ClinicCode != "" {
+		clinicCode = *input.ClinicCode
+	} else {
+		var err error
+		clinicCode, err = utils.GenerateClinicCode(opCtx, tx, s.DB, input.Name)
+		if err != nil {
+			return "", nil, errors.New("failed to generate clinic code")
+		}
+	}
 
 	var clinicID string
 	err = tx.QueryRowContext(opCtx, `
@@ -183,55 +157,6 @@ func (s *ClinicService) CreateClinicWithAdmin(ctx context.Context, input models.
 		return "", "", nil, errors.New("organization not found")
 	}
 
-	// Check if admin username already exists
-	var existingUserID string
-	err = s.DB.QueryRowContext(opCtx, `SELECT id FROM users WHERE username = $1`, input.AdminUsername).Scan(&existingUserID)
-	if err == nil {
-		return "", "", nil, errors.New("admin username already exists")
-	}
-
-	// Check if admin email already exists
-	err = s.DB.QueryRowContext(opCtx, `SELECT id FROM users WHERE email = $1`, input.AdminEmail).Scan(&existingUserID)
-	if err == nil {
-		return "", "", nil, errors.New("admin email already exists")
-	}
-
-	// Check if clinic code already exists if provided
-	if input.ClinicCode != nil && *input.ClinicCode != "" {
-		var existingClinicCode string
-		err = s.DB.QueryRowContext(opCtx, `SELECT id FROM clinics WHERE clinic_code = $1`, *input.ClinicCode).Scan(&existingClinicCode)
-		if err == nil {
-			return "", "", nil, errors.New("clinic code already exists")
-		}
-	}
-
-	// Check if clinic name already exists in this organization
-	var existingClinicID string
-	err = s.DB.QueryRowContext(opCtx, `SELECT id FROM clinics WHERE organization_id = $1 AND name = $2`, input.OrganizationID, input.Name).Scan(&existingClinicID)
-	if err == nil {
-		return "", "", nil, errors.New("clinic name already exists in this organization")
-	}
-
-	// Check if clinic email already exists if provided
-	if input.Email != nil && *input.Email != "" {
-		err = s.DB.QueryRowContext(opCtx, `SELECT id FROM clinics WHERE email = $1`, *input.Email).Scan(&existingClinicID)
-		if err == nil {
-			return "", "", nil, errors.New("clinic email already exists")
-		}
-	}
-
-	// Auto-generate clinic code if missing
-	var clinicCode string
-	if input.ClinicCode != nil && *input.ClinicCode != "" {
-		clinicCode = *input.ClinicCode
-	} else {
-		var err error
-		clinicCode, err = utils.GenerateClinicCode(opCtx, nil, s.DB, input.Name)
-		if err != nil {
-			return "", "", nil, errors.New("failed to generate clinic code")
-		}
-	}
-
 	// Validate and format ClinicType
 	input.ClinicType = strings.TrimSpace(input.ClinicType)
 	if input.ClinicType == "" {
@@ -246,7 +171,6 @@ func (s *ClinicService) CreateClinicWithAdmin(ctx context.Context, input models.
 			return "", "", nil, err
 		}
 
-		// Use channel to get result from goroutine
 		type result struct {
 			path string
 			err  error
@@ -280,30 +204,53 @@ func (s *ClinicService) CreateClinicWithAdmin(ctx context.Context, input models.
 	}
 	defer tx.Rollback()
 
-	// Hash admin password
-	passHash, err := bcrypt.GenerateFromPassword([]byte(input.AdminPassword), bcrypt.DefaultCost)
-	if err != nil {
-		return "", "", nil, errors.New("failed to hash admin password")
+	// Auto-generate clinic code if missing (Inside transaction for locking)
+	var clinicCode string
+	if input.ClinicCode != nil && *input.ClinicCode != "" {
+		clinicCode = *input.ClinicCode
+	} else {
+		var err error
+		clinicCode, err = utils.GenerateClinicCode(opCtx, tx, s.DB, input.Name)
+		if err != nil {
+			return "", "", nil, errors.New("failed to generate clinic code")
+		}
 	}
 
-	// Create admin user
+	// 1. Check if admin user already exists (by email) to avoid conflicts
 	var adminID string
-	err = tx.QueryRowContext(opCtx, `
-        INSERT INTO users (first_name, last_name, email, username, phone, password_hash)
-        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
-    `, input.AdminFirstName, input.AdminLastName, input.AdminEmail, input.AdminUsername, input.AdminPhone, string(passHash)).Scan(&adminID)
+	err = tx.QueryRowContext(opCtx, `SELECT id FROM users WHERE email = $1`, input.AdminEmail).Scan(&adminID)
+
 	if err != nil {
-		return "", "", nil, errors.New("failed to create admin user")
+		if err == sql.ErrNoRows {
+			// User does not exist, create new one
+			passHash, err := bcrypt.GenerateFromPassword([]byte(input.AdminPassword), bcrypt.DefaultCost)
+			if err != nil {
+				return "", "", nil, errors.New("failed to hash admin password")
+			}
+
+			err = tx.QueryRowContext(opCtx, `
+                INSERT INTO users (first_name, last_name, email, username, phone, password_hash)
+                VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+            `, input.AdminFirstName, input.AdminLastName, input.AdminEmail, input.AdminUsername, input.AdminPhone, string(passHash)).Scan(&adminID)
+			if err != nil {
+				return "", "", nil, errors.New("failed to create admin user: " + err.Error())
+			}
+		} else {
+			return "", "", nil, errors.New("database error checking user: " + err.Error())
+		}
+	} else {
+		// Existing user found, we will simply link the new clinic to them
+		// (We don't update password here for security reasons, unless explicitly required)
 	}
 
-	// Create clinic with admin as user_id
+	// 2. Create clinic with admin as user_id (the owner)
 	var clinicID string
 	err = tx.QueryRowContext(opCtx, `
         INSERT INTO clinics (organization_id, user_id, clinic_code, name, clinic_type, email, phone, address, license_number, logo)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id
     `, input.OrganizationID, adminID, clinicCode, input.Name, input.ClinicType, input.Email, input.Phone, input.Address, input.LicenseNumber, logoPath).Scan(&clinicID)
 	if err != nil {
-		return "", "", nil, errors.New("failed to create clinic")
+		return "", "", nil, errors.New("failed to create clinic: " + err.Error())
 	}
 
 	// Assign clinic_admin role
@@ -324,4 +271,74 @@ func (s *ClinicService) CreateClinicWithAdmin(ctx context.Context, input models.
 	}
 
 	return clinicID, adminID, logoPath, nil
+}
+
+// DeleteClinic handles deleting a clinic and its associated admin user
+func (s *ClinicService) DeleteClinic(ctx context.Context, clinicID string) error {
+	opCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	// 1. Get user_id and logo path associated with the clinic before deleting it
+	var userID sql.NullString
+	var logoPath sql.NullString
+	err := s.DB.QueryRowContext(opCtx, `SELECT user_id, logo FROM clinics WHERE id = $1`, clinicID).Scan(&userID, &logoPath)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return errors.New("clinic not found")
+		}
+		return errors.New("failed to find clinic details: " + err.Error())
+	}
+
+	// 2. Check if this user is linked to ANY other clinic or organization
+	// This prevents deleting a user who might have roles elsewhere
+	deleteUser := false
+	if userID.Valid && userID.String != "" {
+		var otherLinks int
+		// Check user_roles for any other clinics
+		err = s.DB.QueryRowContext(opCtx, `SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND clinic_id != $2`, userID.String, clinicID).Scan(&otherLinks)
+		if err == nil && otherLinks == 0 {
+			deleteUser = true
+		}
+	}
+
+	// 3. Start transaction
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return errors.New("failed to start transaction")
+	}
+	defer tx.Rollback()
+
+	// 4. Delete the clinic (CASCADE will handle staff, doctors, links in this DB)
+	result, err := tx.ExecContext(opCtx, `DELETE FROM clinics WHERE id = $1`, clinicID)
+	if err != nil {
+		return errors.New("failed to delete clinic: " + err.Error())
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return errors.New("clinic not found")
+	}
+
+	// 5. Delete the user if they have no other associations
+	if deleteUser {
+		// user_roles (CASCADE) and other associated auth data will be cleaned up automatically by DB FKs
+		_, err = tx.ExecContext(opCtx, `DELETE FROM users WHERE id = $1`, userID.String)
+		if err != nil {
+			// We might not want to block clinic deletion if user deletion fails due to complex external relations
+			// but for this task, we try to fulfill the request.
+			return errors.New("failed to delete associated user: " + err.Error())
+		}
+	}
+
+	// 6. Commit transaction
+	if err = tx.Commit(); err != nil {
+		return errors.New("failed to commit clinic deletion")
+	}
+
+	// 7. Post-commit cleanup: Delete the logo file from disk
+	if logoPath.Valid && logoPath.String != "" {
+		_ = utils.DeleteImage(logoPath.String)
+	}
+
+	return nil
 }

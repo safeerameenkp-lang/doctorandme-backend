@@ -82,6 +82,22 @@ func CreateStaff(c *gin.Context) {
 		input.LastName = input.Username
 	}
 
+	// 1. Unified existence check (Restored)
+	var usernameExists, emailExists bool
+	_ = config.DB.QueryRow(`
+        SELECT EXISTS(SELECT 1 FROM users WHERE username = $1),
+               EXISTS(SELECT 1 FROM users WHERE email = $2)
+    `, input.Username, input.Email).Scan(&usernameExists, &emailExists)
+
+	if usernameExists {
+		middleware.SendValidationError(c, "Username conflict", "This username is already taken")
+		return
+	}
+	if emailExists {
+		middleware.SendValidationError(c, "Email conflict", "This email address is already associated with an account")
+		return
+	}
+
 	// Start transaction
 	tx, err := config.DB.Begin()
 	if err != nil {
@@ -89,14 +105,6 @@ func CreateStaff(c *gin.Context) {
 		return
 	}
 	defer tx.Rollback()
-
-	// Check if username/email already exists
-	var existingUserID string
-	err = tx.QueryRow(`SELECT id FROM users WHERE username = $1 OR email = $2`, input.Username, input.Email).Scan(&existingUserID)
-	if err == nil {
-		middleware.SendValidationError(c, "User already exists", "Username or email already exists")
-		return
-	}
 
 	// Hash password
 	passHash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
@@ -1526,10 +1534,6 @@ func GetPatientHistory(c *gin.Context) {
 	patientInfo["phone"] = phone
 	patientInfo["date_of_birth"] = dateOfBirth.Time
 	patientInfo["gender"] = gender.String
-	if err != nil {
-		middleware.SendNotFoundError(c, "patient")
-		return
-	}
 
 	// Get appointment history
 	appointmentRows, err := config.DB.Query(`

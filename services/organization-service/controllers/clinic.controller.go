@@ -267,17 +267,18 @@ func UpdateClinic(c *gin.Context) {
 func DeleteClinic(c *gin.Context) {
 	clinicID := c.Param("id")
 
-	result, err := config.DB.Exec(`DELETE FROM clinics WHERE id = $1`, clinicID)
+	// Use service to delete clinic and its user
+	clinicSvc := services.NewClinicService(config.DB)
+	err := clinicSvc.DeleteClinic(c.Request.Context(), clinicID)
+
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete clinic"})
+		if err.Error() == "clinic not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Clinic not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete clinic and its admin: " + err.Error()})
+		}
 		return
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Clinic not found"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Clinic deleted successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Clinic and its associated admin deleted successfully"})
 }

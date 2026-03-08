@@ -40,7 +40,7 @@ type RegisterInput struct {
 	FirstName string `json:"first_name" binding:"max=50"`
 	LastName  string `json:"last_name" binding:"max=50"`
 	Email     string `json:"email" binding:"omitempty,email"`
-	Username  string `json:"username" binding:"required,min=3,max=30"`
+	Username  string `json:"username" binding:"required,min=1,max=30"`
 	Phone     string `json:"phone" binding:"omitempty,len=10"`
 	Password  string `json:"password" binding:"required,min=8"`
 }
@@ -79,7 +79,7 @@ func Register(c *gin.Context) {
 		}
 	}
 
-	// Consolidated existence check
+	// Consolidated existence check (Restored for security)
 	var usernameExists, emailExists bool
 	if input.Email != "" {
 		_ = config.DB.QueryRowContext(ctx, `SELECT 
