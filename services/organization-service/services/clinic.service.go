@@ -43,6 +43,30 @@ func (s *ClinicService) CreateClinic(ctx context.Context, input models.CreateCli
 		return "", nil, errors.New("user not found")
 	}
 
+	// Check if clinic code already exists if provided
+	if input.ClinicCode != nil && *input.ClinicCode != "" {
+		var existingClinicCode string
+		err = s.DB.QueryRowContext(opCtx, `SELECT id FROM clinics WHERE clinic_code = $1`, *input.ClinicCode).Scan(&existingClinicCode)
+		if err == nil {
+			return "", nil, errors.New("clinic code already exists")
+		}
+	}
+
+	// Check if clinic name already exists in this organization
+	var existingClinicID string
+	err = s.DB.QueryRowContext(opCtx, `SELECT id FROM clinics WHERE organization_id = $1 AND name = $2`, input.OrganizationID, input.Name).Scan(&existingClinicID)
+	if err == nil {
+		return "", nil, errors.New("clinic name already exists in this organization")
+	}
+
+	// Check if clinic email already exists if provided
+	if input.Email != nil && *input.Email != "" {
+		err = s.DB.QueryRowContext(opCtx, `SELECT id FROM clinics WHERE email = $1`, *input.Email).Scan(&existingClinicID)
+		if err == nil {
+			return "", nil, errors.New("clinic email already exists")
+		}
+	}
+
 	// Auto-generate clinic code if missing
 	var clinicCode string
 	if input.ClinicCode != nil && *input.ClinicCode != "" {
@@ -96,14 +120,37 @@ func (s *ClinicService) CreateClinic(ctx context.Context, input models.CreateCli
 		logoPath = &res.path
 	}
 
+	// Start transaction for atomic creation and role assignment
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return "", nil, errors.New("failed to start transaction")
+	}
+	defer tx.Rollback()
+
 	var clinicID string
-	err = s.DB.QueryRowContext(opCtx, `
+	err = tx.QueryRowContext(opCtx, `
         INSERT INTO clinics (organization_id, user_id, clinic_code, name, clinic_type, email, phone, address, license_number, logo)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id
     `, input.OrganizationID, input.UserID, clinicCode, input.Name, input.ClinicType, input.Email, input.Phone, input.Address, input.LicenseNumber, logoPath).Scan(&clinicID)
 
 	if err != nil {
-		return "", nil, errors.New("failed to create clinic: " + err.Error())
+		return "", nil, errors.New("failed to insert clinic: " + err.Error())
+	}
+
+	// Assign clinic_admin role to the assigned user
+	var roleID string
+	err = tx.QueryRowContext(opCtx, `SELECT id FROM roles WHERE name='clinic_admin' LIMIT 1`).Scan(&roleID)
+	if err == nil {
+		// Only assign if role found (don't fail critical path if role table is weird, but usually it should be there)
+		_, _ = tx.ExecContext(opCtx, `
+            INSERT INTO user_roles (user_id, role_id, clinic_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id, role_id, clinic_id) DO NOTHING
+        `, input.UserID, roleID, clinicID)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return "", nil, errors.New("failed to commit clinic creation")
 	}
 
 	return clinicID, logoPath, nil
@@ -147,6 +194,30 @@ func (s *ClinicService) CreateClinicWithAdmin(ctx context.Context, input models.
 	err = s.DB.QueryRowContext(opCtx, `SELECT id FROM users WHERE email = $1`, input.AdminEmail).Scan(&existingUserID)
 	if err == nil {
 		return "", "", nil, errors.New("admin email already exists")
+	}
+
+	// Check if clinic code already exists if provided
+	if input.ClinicCode != nil && *input.ClinicCode != "" {
+		var existingClinicCode string
+		err = s.DB.QueryRowContext(opCtx, `SELECT id FROM clinics WHERE clinic_code = $1`, *input.ClinicCode).Scan(&existingClinicCode)
+		if err == nil {
+			return "", "", nil, errors.New("clinic code already exists")
+		}
+	}
+
+	// Check if clinic name already exists in this organization
+	var existingClinicID string
+	err = s.DB.QueryRowContext(opCtx, `SELECT id FROM clinics WHERE organization_id = $1 AND name = $2`, input.OrganizationID, input.Name).Scan(&existingClinicID)
+	if err == nil {
+		return "", "", nil, errors.New("clinic name already exists in this organization")
+	}
+
+	// Check if clinic email already exists if provided
+	if input.Email != nil && *input.Email != "" {
+		err = s.DB.QueryRowContext(opCtx, `SELECT id FROM clinics WHERE email = $1`, *input.Email).Scan(&existingClinicID)
+		if err == nil {
+			return "", "", nil, errors.New("clinic email already exists")
+		}
 	}
 
 	// Auto-generate clinic code if missing
