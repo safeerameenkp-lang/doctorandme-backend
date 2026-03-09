@@ -326,19 +326,16 @@ func DeleteDepartment(c *gin.Context) {
 	departmentID := c.Param("id")
 	clinicIDContext := c.GetString("clinic_id")
 
-	// 1. Verify the department exists and user has permission
+	// 1. Verify the department simply exists (no scope here — DELETE handles scope)
 	var exists bool
 	err := config.DB.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM departments
-			WHERE id = $1 AND (clinic_id = $2 OR $2 = '')
-		)
-	`, departmentID, clinicIDContext).Scan(&exists)
+		SELECT EXISTS(SELECT 1 FROM departments WHERE id = $1)
+	`, departmentID).Scan(&exists)
 
 	if err != nil || !exists {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "Department not found",
-			"message": "The specified department does not exist or you don't have permission to delete it",
+			"message": "The specified department does not exist",
 		})
 		return
 	}
@@ -351,22 +348,23 @@ func DeleteDepartment(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	// Clear department_id from doctors (FK: ON DELETE SET NULL)
+	// Clear department_id from doctors (prevents FK violation)
 	_, err = tx.Exec(`UPDATE doctors SET department_id = NULL WHERE department_id = $1`, departmentID)
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to unassign doctors from department")
 		return
 	}
 
-	// Clear department_id from clinic_doctor_links (FK: ON DELETE SET NULL)
+	// Clear department_id from clinic_doctor_links (prevents FK violation)
 	_, err = tx.Exec(`UPDATE clinic_doctor_links SET department_id = NULL WHERE department_id = $1`, departmentID)
 	if err != nil {
-		// Column may not exist yet if migration 039 hasn't run — ignore this error
-		// It will be handled by the migration when it runs
+		// Ignore: column may not exist yet before migration 039 runs
 		_ = err
 	}
 
-	// 3. Now safely delete the department
+	// 3. Delete with clinic scoping:
+	//    - super_admin: clinicIDContext is "" → ($2 = '') is true → deletes any
+	//    - clinic_admin: clinicIDContext is set → must match clinic_id on the row
 	result, err := tx.Exec(`
 		DELETE FROM departments 
 		WHERE id = $1 AND (clinic_id = $2 OR $2 = '')
@@ -378,9 +376,9 @@ func DeleteDepartment(c *gin.Context) {
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":   "Department not found",
-			"message": "The specified department does not exist or has already been deleted",
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":   "Forbidden",
+			"message": "You do not have permission to delete this department",
 		})
 		return
 	}
