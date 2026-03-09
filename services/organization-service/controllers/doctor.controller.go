@@ -764,6 +764,7 @@ func GetDoctorsByClinic(c *gin.Context) {
             cdl.follow_up_days, 
             cdl.notes,
             cdl.is_active as link_active,
+            cdl.created_at as join_date,
             d.id as doctor_id, 
             d.doctor_code, 
             d.specialization, 
@@ -808,12 +809,13 @@ func GetDoctorsByClinic(c *gin.Context) {
 		var followUpDays, defaultFollowUpDays sql.NullInt64
 		var notes, profileImage sql.NullString
 		var linkActive, doctorActive, userActive bool
+		var cdlCreatedAt string
 		var experienceYears int
 		var qualification, bio string
 		var firstName, lastName, email, username, phone string
 
 		err := rows.Scan(
-			&linkID, &offlineFee, &onlineFee, &followUpFee, &followUpDays, &notes, &linkActive,
+			&linkID, &offlineFee, &onlineFee, &followUpFee, &followUpDays, &notes, &linkActive, &cdlCreatedAt,
 			&doctorID, &doctorCode, &specialization, &licenseNumber, &defaultOfflineFee, &defaultFollowUpFee, &defaultFollowUpDays, &profileImage, &doctorActive,
 			&experienceYears, &qualification, &bio,
 			&userID, &firstName, &lastName, &email, &username, &phone, &userActive,
@@ -832,6 +834,7 @@ func GetDoctorsByClinic(c *gin.Context) {
 			"qualification":    qualification,
 			"bio":              bio,
 			"profile_image":    profileImage.String,
+			"join_date":        cdlCreatedAt,
 			"default_fees": gin.H{
 				"consultation_fee": defaultOfflineFee.Float64,
 				"follow_up_fee":    defaultFollowUpFee.Float64,

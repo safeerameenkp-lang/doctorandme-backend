@@ -157,6 +157,7 @@ func GetClinicDoctorLinks(c *gin.Context) {
                cdl.follow_up_fee, cdl.follow_up_days, cdl.notes,
                c.id as clinic_id, c.name as clinic_name, c.clinic_code,
                d.id as doctor_id, d.doctor_code, d.specialization, d.license_number, d.profile_image,
+               COALESCE(d.experience_years, 0), COALESCE(d.qualification, ''), COALESCE(d.bio, ''),
                u.first_name, u.last_name, u.email, u.username, u.phone
         FROM clinic_doctor_links cdl
         JOIN clinics c ON c.id = cdl.clinic_id
@@ -196,12 +197,15 @@ func GetClinicDoctorLinks(c *gin.Context) {
 		var followUpDays *int
 		var isActive bool
 		var createdAt string
+		var experienceYears int
+		var qualification, bio string
 
 		if err := rows.Scan(&linkID, &isActive, &createdAt,
 			&consultationFeeOffline, &consultationFeeOnline,
 			&followUpFee, &followUpDays, &notes,
 			&clinicID, &clinicName, &clinicCode,
 			&doctorID, &doctorCode, &specialization, &licenseNumber, &profileImage,
+			&experienceYears, &qualification, &bio,
 			&firstName, &lastName, &email, &username, &phone); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan row"})
 			return
@@ -210,6 +214,7 @@ func GetClinicDoctorLinks(c *gin.Context) {
 		results = append(results, gin.H{
 			"link_id":    linkID,
 			"is_active":  isActive,
+			"join_date":  createdAt,
 			"created_at": createdAt,
 			"clinic": gin.H{
 				"clinic_id":   clinicID,
@@ -217,16 +222,19 @@ func GetClinicDoctorLinks(c *gin.Context) {
 				"clinic_code": clinicCode,
 			},
 			"doctor": gin.H{
-				"doctor_id":      doctorID,
-				"doctor_code":    doctorCode,
-				"specialization": specialization,
-				"license_number": licenseNumber,
-				"first_name":     firstName,
-				"last_name":      lastName,
-				"email":          email,
-				"username":       username,
-				"phone":          phone,
-				"profile_image":  profileImage,
+				"doctor_id":        doctorID,
+				"doctor_code":      doctorCode,
+				"specialization":   specialization,
+				"license_number":   licenseNumber,
+				"first_name":       firstName,
+				"last_name":        lastName,
+				"email":            email,
+				"username":         username,
+				"phone":            phone,
+				"profile_image":    profileImage,
+				"experience_years": experienceYears,
+				"qualification":    qualification,
+				"bio":              bio,
 			},
 			"fees": gin.H{
 				"consultation_fee_offline": consultationFeeOffline,
@@ -259,24 +267,29 @@ func GetClinicDoctorLinksByDoctor(c *gin.Context) {
 
 	// Get doctor basic info (also verifies existence intrinsically)
 	var doctorInfo struct {
-		DoctorCode     *string
-		Specialization *string
-		LicenseNumber  *string
-		FirstName      string
-		LastName       string
-		Email          *string
-		Phone          *string
-		ProfileImage   *string
+		DoctorCode      *string
+		Specialization  *string
+		LicenseNumber   *string
+		FirstName       string
+		LastName        string
+		Email           *string
+		Phone           *string
+		ProfileImage    *string
+		ExperienceYears int
+		Qualification   string
+		Bio             string
 	}
 
 	err := config.DB.QueryRowContext(ctx, `
         SELECT CAST(d.doctor_code AS VARCHAR), CAST(d.specialization AS VARCHAR), CAST(d.license_number AS VARCHAR), CAST(d.profile_image AS VARCHAR),
+               COALESCE(d.experience_years, 0), COALESCE(d.qualification, ''), COALESCE(d.bio, ''),
                u.first_name, u.last_name, CAST(u.email AS VARCHAR), CAST(u.phone AS VARCHAR)
         FROM doctors d
         JOIN users u ON u.id = d.user_id
         WHERE d.id = $1 AND d.is_active = true
     `, doctorID).Scan(
 		&doctorInfo.DoctorCode, &doctorInfo.Specialization, &doctorInfo.LicenseNumber, &doctorInfo.ProfileImage,
+		&doctorInfo.ExperienceYears, &doctorInfo.Qualification, &doctorInfo.Bio,
 		&doctorInfo.FirstName, &doctorInfo.LastName, &doctorInfo.Email, &doctorInfo.Phone,
 	)
 
@@ -330,6 +343,7 @@ func GetClinicDoctorLinksByDoctor(c *gin.Context) {
 		clinics = append(clinics, gin.H{
 			"link_id":    linkID,
 			"is_active":  isActive,
+			"join_date":  createdAt,
 			"created_at": createdAt,
 			"updated_at": updatedAt,
 			"clinic": gin.H{
@@ -357,15 +371,19 @@ func GetClinicDoctorLinksByDoctor(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"doctor": gin.H{
-			"doctor_id":      doctorID,
-			"doctor_code":    doctorInfo.DoctorCode,
-			"specialization": doctorInfo.Specialization,
-			"license_number": doctorInfo.LicenseNumber,
-			"first_name":     doctorInfo.FirstName,
-			"last_name":      doctorInfo.LastName,
-			"email":          doctorInfo.Email,
-			"phone":          doctorInfo.Phone,
-			"profile_image":  doctorInfo.ProfileImage,
+			"doctor_id":        doctorID,
+			"doctor_code":      doctorInfo.DoctorCode,
+			"specialization":   doctorInfo.Specialization,
+			"license_number":   doctorInfo.LicenseNumber,
+			"first_name":       doctorInfo.FirstName,
+			"last_name":        doctorInfo.LastName,
+			"full_name":        doctorInfo.FirstName + " " + doctorInfo.LastName,
+			"email":            doctorInfo.Email,
+			"phone":            doctorInfo.Phone,
+			"profile_image":    doctorInfo.ProfileImage,
+			"experience_years": doctorInfo.ExperienceYears,
+			"qualification":    doctorInfo.Qualification,
+			"bio":              doctorInfo.Bio,
 		},
 		"clinics":       clinics,
 		"total_clinics": len(clinics),
