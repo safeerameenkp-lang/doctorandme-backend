@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -211,20 +212,54 @@ func CreateDoctor(c *gin.Context) {
 }
 
 func GetAllDoctors(c *gin.Context) {
-	rows, err := config.DB.Query(`
+	clinicID := c.Query("clinic_id")
+	onlyActive := c.DefaultQuery("only_active", "true")
+	isMain := c.Query("is_main")
+
+	whereConditions := []string{}
+	args := []interface{}{}
+	argIndex := 1
+
+	if clinicID != "" {
+		whereConditions = append(whereConditions, fmt.Sprintf("(d.clinic_id = $%d OR EXISTS(SELECT 1 FROM clinic_doctor_links cdl WHERE cdl.doctor_id = d.id AND cdl.clinic_id = $%d))", argIndex, argIndex))
+		args = append(args, clinicID)
+		argIndex++
+	}
+
+	if onlyActive == "true" {
+		whereConditions = append(whereConditions, fmt.Sprintf("d.is_active = $%d AND u.is_active = $%d", argIndex, argIndex+1))
+		args = append(args, true, true)
+		argIndex += 2
+	}
+
+	if isMain == "true" {
+		whereConditions = append(whereConditions, fmt.Sprintf("d.is_main_doctor = $%d", argIndex))
+		args = append(args, true)
+		argIndex++
+	}
+
+	whereClause := ""
+	if len(whereConditions) > 0 {
+		whereClause = "WHERE " + strings.Join(whereConditions, " AND ")
+	}
+
+	query := fmt.Sprintf(`
         SELECT d.id, d.doctor_code, d.specialization, d.license_number, d.consultation_fee,
                d.follow_up_fee, d.follow_up_days, d.profile_image, u.id, u.first_name, u.last_name, u.email, u.username, u.phone
         FROM doctors d
         JOIN users u ON d.user_id = u.id
-    `)
+        %s
+        ORDER BY u.first_name, u.last_name
+    `, whereClause)
+
+	rows, err := config.DB.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch doctors"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch doctors", "details": err.Error()})
 		return
 	}
 	defer rows.Close()
 
 	var doctors []map[string]interface{}
-
 	for rows.Next() {
 		var dID, uID, firstName, lastName, email, username, phone, doctorCode, specialization, license string
 		var consultationFee, followUpFee sql.NullFloat64
@@ -234,8 +269,7 @@ func GetAllDoctors(c *gin.Context) {
 		err := rows.Scan(&dID, &doctorCode, &specialization, &license, &consultationFee,
 			&followUpFee, &followUpDays, &profileImage, &uID, &firstName, &lastName, &email, &username, &phone)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse doctor data"})
-			return
+			continue
 		}
 
 		doctor := map[string]interface{}{
@@ -255,17 +289,20 @@ func GetAllDoctors(c *gin.Context) {
 			},
 		}
 
-		// Handle nullable fee fields
 		if consultationFee.Valid {
 			doctor["consultation_fee"] = consultationFee.Float64
 		}
 		if followUpFee.Valid {
 			doctor["follow_up_fee"] = followUpFee.Float64
 		}
+
 		doctors = append(doctors, doctor)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"doctors": doctors})
+	c.JSON(http.StatusOK, gin.H{
+		"doctors":     doctors,
+		"total_count": len(doctors),
+	})
 }
 
 func GetDoctors(c *gin.Context) {
@@ -600,8 +637,8 @@ func DeleteDoctor(c *gin.Context) {
 			LEFT JOIN clinic_doctor_links cdl ON cdl.doctor_id = d.id
 			WHERE d.id = $1 AND (
 				$2 = true OR -- Super admin
-				d.clinic_id = ANY($3) OR -- Direct ownership via clinic_id
-				cdl.clinic_id = ANY($3) -- Linked via clinic_doctor_links
+				d.clinic_id = ANY($3::uuid[]) OR -- Direct ownership via clinic_id
+				cdl.clinic_id = ANY($3::uuid[]) -- Linked via clinic_doctor_links
 			)
 		)
 		FROM doctors WHERE id = $1
@@ -612,7 +649,7 @@ func DeleteDoctor(c *gin.Context) {
 		clinicIDs = []string{clinicIDContext}
 	}
 
-	err := config.DB.QueryRow(query, doctorID, isSuperAdmin, clinicIDs).Scan(&userID, &linked)
+	err := config.DB.QueryRow(query, doctorID, isSuperAdmin, pq.Array(clinicIDs)).Scan(&userID, &linked)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -643,6 +680,13 @@ func DeleteDoctor(c *gin.Context) {
 	_, err = tx.Exec(`DELETE FROM user_roles WHERE user_id = $1`, userID)
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to clean up user roles")
+		return
+	}
+
+	// Delete from patients table if this user was also a patient
+	_, err = tx.Exec(`DELETE FROM patients WHERE user_id = $1`, userID)
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to clean up patient profile")
 		return
 	}
 
