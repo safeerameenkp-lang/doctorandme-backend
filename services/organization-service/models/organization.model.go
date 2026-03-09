@@ -101,6 +101,9 @@ type Doctor struct {
 	FollowUpDays    *int      `json:"follow_up_days" db:"follow_up_days"`
 	IsMainDoctor    bool      `json:"is_main_doctor" db:"is_main_doctor"`
 	ProfileImage    *string   `json:"profile_image" db:"profile_image"`
+	ExperienceYears *int      `json:"experience_years" db:"experience_years"`
+	Qualification   *string   `json:"qualification" db:"qualification"`
+	Bio             *string   `json:"bio" db:"bio"`
 	IsActive        bool      `json:"is_active" db:"is_active"`
 	CreatedAt       time.Time `json:"created_at" db:"created_at"`
 }

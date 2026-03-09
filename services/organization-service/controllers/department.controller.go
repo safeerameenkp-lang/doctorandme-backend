@@ -445,7 +445,8 @@ func GetDoctorsByDepartment(c *gin.Context) {
 		       COALESCE(d.specialization, ''), COALESCE(d.license_number, ''),
 		       d.is_main_doctor, d.is_active, d.created_at::text,
 		       u.first_name, u.last_name, COALESCE(u.email::text, ''), COALESCE(u.phone, ''),
-		       COALESCE(d.profile_image, '')
+		       COALESCE(d.profile_image, ''), COALESCE(d.experience_years, 0),
+		       COALESCE(d.qualification, ''), COALESCE(d.bio, '')
 		FROM doctors d
 		JOIN users u ON u.id = d.user_id
 		WHERE d.department_id = $1
@@ -457,7 +458,8 @@ func GetDoctorsByDepartment(c *gin.Context) {
 		       COALESCE(d.specialization, ''), COALESCE(d.license_number, ''),
 		       d.is_main_doctor, d.is_active, d.created_at::text,
 		       u.first_name, u.last_name, COALESCE(u.email::text, ''), COALESCE(u.phone, ''),
-		       COALESCE(d.profile_image, '')
+		       COALESCE(d.profile_image, ''), COALESCE(d.experience_years, 0),
+		       COALESCE(d.qualification, ''), COALESCE(d.bio, '')
 		FROM doctors d
 		JOIN users u ON u.id = d.user_id
 		JOIN clinic_doctor_links cdl ON cdl.doctor_id = d.id
@@ -480,34 +482,38 @@ func GetDoctorsByDepartment(c *gin.Context) {
 		var firstName, lastName, email, phone, profileImage string
 		var isMainDoctor, isActive bool
 		var createdAt string
+		var experienceYears int
+		var qualification, bio string
 
 		err := rows.Scan(
 			&doctorID, &userID, &doctorCode, &specialization, &licenseNumber,
 			&isMainDoctor, &isActive, &createdAt,
 			&firstName, &lastName, &email, &phone,
-			&profileImage,
+			&profileImage, &experienceYears, &qualification, &bio,
 		)
 		if err != nil {
 			continue
 		}
 
 		doctor := map[string]interface{}{
-			"id":             doctorID,
-			"user_id":        userID,
-			"doctor_code":    doctorCode,
-			"specialization": specialization,
-			"license_number": licenseNumber,
-			"is_main_doctor": isMainDoctor,
-			"is_active":      isActive,
-			"created_at":     createdAt,
-			"first_name":     firstName,
-			"last_name":      lastName,
-			"full_name":      firstName + " " + lastName,
-			"email":          email,
-			"phone":          phone,
-			"profile_image":  profileImage,
+			"id":               doctorID,
+			"user_id":          userID,
+			"doctor_code":      doctorCode,
+			"specialization":   specialization,
+			"license_number":   licenseNumber,
+			"is_main_doctor":   isMainDoctor,
+			"is_active":        isActive,
+			"created_at":       createdAt,
+			"first_name":       firstName,
+			"last_name":        lastName,
+			"full_name":        firstName + " " + lastName,
+			"email":            email,
+			"phone":            phone,
+			"profile_image":    profileImage,
+			"experience_years": experienceYears,
+			"qualification":    qualification,
+			"bio":              bio,
 		}
-
 		doctors = append(doctors, doctor)
 	}
 

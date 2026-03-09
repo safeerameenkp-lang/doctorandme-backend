@@ -39,6 +39,9 @@ type CreateDoctorInput struct {
 	ConsultationFee *float64 `json:"consultation_fee" binding:"omitempty,min=0" form:"consultation_fee"`
 	FollowUpFee     *float64 `json:"follow_up_fee" binding:"omitempty,min=0" form:"follow_up_fee"`
 	FollowUpDays    *int     `json:"follow_up_days" binding:"omitempty,min=1,max=365" form:"follow_up_days"`
+	ExperienceYears *int     `json:"experience_years" binding:"omitempty,min=0" form:"experience_years"`
+	Qualification   *string  `json:"qualification" binding:"omitempty,max=255" form:"qualification"`
+	Bio             *string  `json:"bio" binding:"omitempty" form:"bio"`
 }
 
 func CreateDoctor(c *gin.Context) {
@@ -187,9 +190,9 @@ func CreateDoctor(c *gin.Context) {
 	// Create doctor profile
 	var doctorID string
 	err = tx.QueryRowContext(ctx, `
-        INSERT INTO doctors (user_id, clinic_id, doctor_code, specialization, license_number, consultation_fee, follow_up_fee, follow_up_days, profile_image)
-        VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8) RETURNING id
-    `, userID, finalDoctorCode, input.Specialization, input.LicenseNumber, input.ConsultationFee, input.FollowUpFee, input.FollowUpDays, profileImagePath).Scan(&doctorID)
+        INSERT INTO doctors (user_id, clinic_id, doctor_code, specialization, license_number, consultation_fee, follow_up_fee, follow_up_days, profile_image, experience_years, qualification, bio)
+        VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id
+    `, userID, finalDoctorCode, input.Specialization, input.LicenseNumber, input.ConsultationFee, input.FollowUpFee, input.FollowUpDays, profileImagePath, input.ExperienceYears, input.Qualification, input.Bio).Scan(&doctorID)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create doctor: " + err.Error()})
@@ -245,7 +248,9 @@ func GetAllDoctors(c *gin.Context) {
 
 	query := fmt.Sprintf(`
         SELECT d.id, d.doctor_code, d.specialization, d.license_number, d.consultation_fee,
-               d.follow_up_fee, d.follow_up_days, d.profile_image, u.id, u.first_name, u.last_name, u.email, u.username, u.phone
+               d.follow_up_fee, d.follow_up_days, d.profile_image, 
+               COALESCE(d.experience_years, 0), COALESCE(d.qualification, ''), COALESCE(d.bio, ''),
+               u.id, u.first_name, u.last_name, u.email, u.username, u.phone
         FROM doctors d
         JOIN users u ON d.user_id = u.id
         %s
@@ -265,20 +270,26 @@ func GetAllDoctors(c *gin.Context) {
 		var consultationFee, followUpFee sql.NullFloat64
 		var followUpDays sql.NullInt64
 		var profileImage sql.NullString
+		var experienceYears int
+		var qualification, bio string
 
 		err := rows.Scan(&dID, &doctorCode, &specialization, &license, &consultationFee,
-			&followUpFee, &followUpDays, &profileImage, &uID, &firstName, &lastName, &email, &username, &phone)
+			&followUpFee, &followUpDays, &profileImage, &experienceYears, &qualification, &bio,
+			&uID, &firstName, &lastName, &email, &username, &phone)
 		if err != nil {
 			continue
 		}
 
 		doctor := map[string]interface{}{
-			"doctor_id":      dID,
-			"doctor_code":    doctorCode,
-			"specialization": specialization,
-			"license_number": license,
-			"follow_up_days": followUpDays.Int64,
-			"profile_image":  profileImage.String,
+			"doctor_id":        dID,
+			"doctor_code":      doctorCode,
+			"specialization":   specialization,
+			"license_number":   license,
+			"experience_years": experienceYears,
+			"qualification":    qualification,
+			"bio":              bio,
+			"follow_up_days":   followUpDays.Int64,
+			"profile_image":    profileImage.String,
 			"user": map[string]interface{}{
 				"user_id":    uID,
 				"first_name": firstName,
@@ -422,6 +433,9 @@ type UpdateDoctorInput struct {
 	FollowUpDays    *int     `json:"follow_up_days" form:"follow_up_days"`
 	IsMainDoctor    *bool    `json:"is_main_doctor" form:"is_main_doctor"`
 	IsActive        *bool    `json:"is_active" form:"is_active"`
+	ExperienceYears *int     `json:"experience_years" form:"experience_years"`
+	Qualification   *string  `json:"qualification" form:"qualification"`
+	Bio             *string  `json:"bio" form:"bio"`
 }
 
 func UpdateDoctor(c *gin.Context) {
@@ -590,6 +604,21 @@ func UpdateDoctor(c *gin.Context) {
 		docArgs = append(docArgs, *profileImagePath)
 		dIdx++
 	}
+	if input.ExperienceYears != nil {
+		docUpdates = append(docUpdates, fmt.Sprintf("experience_years = $%d", dIdx))
+		docArgs = append(docArgs, *input.ExperienceYears)
+		dIdx++
+	}
+	if input.Qualification != nil {
+		docUpdates = append(docUpdates, fmt.Sprintf("qualification = $%d", dIdx))
+		docArgs = append(docArgs, *input.Qualification)
+		dIdx++
+	}
+	if input.Bio != nil {
+		docUpdates = append(docUpdates, fmt.Sprintf("bio = $%d", dIdx))
+		docArgs = append(docArgs, *input.Bio)
+		dIdx++
+	}
 
 	if len(docUpdates) > 0 {
 		docQuery := fmt.Sprintf("UPDATE doctors SET %s WHERE id = $%d", strings.Join(docUpdates, ", "), dIdx)
@@ -744,6 +773,9 @@ func GetDoctorsByClinic(c *gin.Context) {
             d.follow_up_days as default_follow_up_days,
             d.profile_image,
             d.is_active as doctor_active,
+            COALESCE(d.experience_years, 0), 
+            COALESCE(d.qualification, ''), 
+            COALESCE(d.bio, ''),
             u.id as user_id,
             u.first_name, 
             u.last_name, 
@@ -772,59 +804,55 @@ func GetDoctorsByClinic(c *gin.Context) {
 	for rows.Next() {
 		var linkID, doctorID, userID string
 		var doctorCode, specialization, licenseNumber sql.NullString
-		var firstName, lastName, email, username string
-		var phone, notes *string
-		var consultationFeeOffline, consultationFeeOnline, followUpFee *float64
-		var defaultConsultationFee, defaultFollowUpFee *float64
-		var followUpDays, defaultFollowUpDays *int
+		var offlineFee, onlineFee, followUpFee, defaultOfflineFee, defaultFollowUpFee sql.NullFloat64
+		var followUpDays, defaultFollowUpDays sql.NullInt64
+		var notes, profileImage sql.NullString
 		var linkActive, doctorActive, userActive bool
-		var profileImage sql.NullString
+		var experienceYears int
+		var qualification, bio string
+		var firstName, lastName, email, username, phone string
 
 		err := rows.Scan(
-			&linkID,
-			&consultationFeeOffline, &consultationFeeOnline,
-			&followUpFee, &followUpDays, &notes,
-			&linkActive,
-			&doctorID, &doctorCode, &specialization, &licenseNumber,
-			&defaultConsultationFee, &defaultFollowUpFee, &defaultFollowUpDays, &profileImage,
-			&doctorActive,
-			&userID, &firstName, &lastName, &email, &username, &phone,
-			&userActive,
+			&linkID, &offlineFee, &onlineFee, &followUpFee, &followUpDays, &notes, &linkActive,
+			&doctorID, &doctorCode, &specialization, &licenseNumber, &defaultOfflineFee, &defaultFollowUpFee, &defaultFollowUpDays, &profileImage, &doctorActive,
+			&experienceYears, &qualification, &bio,
+			&userID, &firstName, &lastName, &email, &username, &phone, &userActive,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan doctor data", "details": err.Error()})
-			return
+			continue
 		}
 
 		doctor := gin.H{
-			"link_id":        linkID,
-			"doctor_id":      doctorID,
-			"user_id":        userID,
-			"doctor_code":    doctorCode.String,
-			"specialization": specialization.String,
-			"license_number": licenseNumber.String,
-			"profile_image":  profileImage.String,
-			"first_name":     firstName,
-			"last_name":      lastName,
-			"full_name":      firstName + " " + lastName,
-			"email":          email,
-			"username":       username,
-			"phone":          phone,
-			"is_active":      linkActive && doctorActive && userActive,
-			"clinic_specific_fees": gin.H{
-				"consultation_fee_offline": consultationFeeOffline,
-				"consultation_fee_online":  consultationFeeOnline,
-				"follow_up_fee":            followUpFee,
-				"follow_up_days":           followUpDays,
-				"notes":                    notes,
-			},
+			"link_id":          linkID,
+			"doctor_id":        doctorID,
+			"doctor_code":      doctorCode.String,
+			"specialization":   specialization.String,
+			"license_number":   licenseNumber.String,
+			"experience_years": experienceYears,
+			"qualification":    qualification,
+			"bio":              bio,
+			"profile_image":    profileImage.String,
 			"default_fees": gin.H{
-				"consultation_fee": defaultConsultationFee,
-				"follow_up_fee":    defaultFollowUpFee,
-				"follow_up_days":   defaultFollowUpDays,
+				"consultation_fee": defaultOfflineFee.Float64,
+				"follow_up_fee":    defaultFollowUpFee.Float64,
+				"follow_up_days":   defaultFollowUpDays.Int64,
+			},
+			"clinic_fees": gin.H{
+				"consultation_fee_offline": offlineFee.Float64,
+				"consultation_fee_online":  onlineFee.Float64,
+				"follow_up_fee":            followUpFee.Float64,
+				"follow_up_days":           followUpDays.Int64,
+				"notes":                    notes.String,
+			},
+			"user": gin.H{
+				"user_id":    userID,
+				"first_name": firstName,
+				"last_name":  lastName,
+				"email":      email,
+				"username":   username,
+				"phone":      phone,
 			},
 		}
-
 		doctors = append(doctors, doctor)
 	}
 
