@@ -38,6 +38,8 @@ func OrganizationRoutes(rg *gin.RouterGroup, patientHandler *patient.PatientHand
 		clinics.GET("/:id", controllers.GetClinic)
 		clinics.PUT("/:id", middleware.RequireRole(config.DB, "super_admin", "organization_admin", "clinic_admin"), controllers.UpdateClinic)
 		clinics.DELETE("/:id", middleware.RequireRole(config.DB, "super_admin", "organization_admin"), controllers.DeleteClinic)
+		// Get doctors by clinic
+		clinics.GET("/:id/doctors", controllers.GetDoctorsByClinic)
 	}
 
 	// Doctor Management

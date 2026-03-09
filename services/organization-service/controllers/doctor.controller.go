@@ -264,7 +264,7 @@ func GetAllDoctors(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var doctors []map[string]interface{}
+	doctors := []map[string]interface{}{}
 	for rows.Next() {
 		var dID, uID, firstName, lastName, email, username, phone, doctorCode, specialization, license string
 		var consultationFee, followUpFee sql.NullFloat64
@@ -355,7 +355,7 @@ func GetDoctors(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var doctors []gin.H
+	doctors := []gin.H{}
 	for rows.Next() {
 		var doctor models.Doctor
 		var firstName, lastName, email, username string
@@ -746,6 +746,9 @@ func DeleteDoctor(c *gin.Context) {
 // GetDoctorsByClinic - Get all doctors linked to a specific clinic with clinic-specific fees
 func GetDoctorsByClinic(c *gin.Context) {
 	clinicID := c.Param("clinic_id")
+	if clinicID == "" {
+		clinicID = c.Param("id")
+	}
 
 	// Verify clinic exists
 	var clinicExists bool
@@ -801,7 +804,7 @@ func GetDoctorsByClinic(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var doctors []gin.H
+	doctors := []gin.H{}
 	for rows.Next() {
 		var linkID, doctorID, userID string
 		var doctorCode, specialization, licenseNumber sql.NullString
