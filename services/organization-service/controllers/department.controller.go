@@ -324,17 +324,53 @@ func UpdateDepartment(c *gin.Context) {
 // DeleteDepartment - Delete a department
 func DeleteDepartment(c *gin.Context) {
 	departmentID := c.Param("id")
+	clinicIDContext := c.GetString("clinic_id")
 
-	// Note: We rely on the database constraint (ON DELETE SET NULL)
-	// for the doctors table. The department will be deleted and assigned
-	// doctors will have their department_id set to NULL automatically.
+	// 1. Verify the department exists and user has permission
+	var exists bool
+	err := config.DB.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM departments
+			WHERE id = $1 AND (clinic_id = $2 OR $2 = '')
+		)
+	`, departmentID, clinicIDContext).Scan(&exists)
 
-	// We scope the deletion to the clinic_id in the context (if any)
-	// If clinic_id is empty (Super Admin), it deletes globally by ID.
-	result, err := config.DB.Exec(`
+	if err != nil || !exists {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "Department not found",
+			"message": "The specified department does not exist or you don't have permission to delete it",
+		})
+		return
+	}
+
+	// 2. Use a transaction to safely clear FK references before deleting
+	tx, err := config.DB.Begin()
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to start transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	// Clear department_id from doctors (FK: ON DELETE SET NULL)
+	_, err = tx.Exec(`UPDATE doctors SET department_id = NULL WHERE department_id = $1`, departmentID)
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to unassign doctors from department")
+		return
+	}
+
+	// Clear department_id from clinic_doctor_links (FK: ON DELETE SET NULL)
+	_, err = tx.Exec(`UPDATE clinic_doctor_links SET department_id = NULL WHERE department_id = $1`, departmentID)
+	if err != nil {
+		// Column may not exist yet if migration 039 hasn't run — ignore this error
+		// It will be handled by the migration when it runs
+		_ = err
+	}
+
+	// 3. Now safely delete the department
+	result, err := tx.Exec(`
 		DELETE FROM departments 
 		WHERE id = $1 AND (clinic_id = $2 OR $2 = '')
-	`, departmentID, c.GetString("clinic_id"))
+	`, departmentID, clinicIDContext)
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to delete department")
 		return
@@ -346,6 +382,11 @@ func DeleteDepartment(c *gin.Context) {
 			"error":   "Department not found",
 			"message": "The specified department does not exist or has already been deleted",
 		})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		middleware.SendDatabaseError(c, "Failed to commit deletion")
 		return
 	}
 
