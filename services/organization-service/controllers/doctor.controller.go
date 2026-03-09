@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"organization-service/config"
+	"organization-service/middleware"
 	"organization-service/models"
 	"organization-service/utils"
 	"strings"
@@ -573,35 +574,100 @@ func UpdateDoctor(c *gin.Context) {
 func DeleteDoctor(c *gin.Context) {
 	doctorID := c.Param("id")
 	clinicIDContext := c.GetString("clinic_id")
+	clinicIDs := c.GetStringSlice("clinic_ids")
+	userRoles := c.GetStringSlice("user_roles")
 
-	// 1. Verify existence and permission
+	// Check if user is super_admin
+	isSuperAdmin := false
+	for _, role := range userRoles {
+		if role == "super_admin" {
+			isSuperAdmin = true
+			break
+		}
+	}
+
+	// 1. Get doctor and user information and verify existence/permission
+	var userID string
 	var linked bool
-	err := config.DB.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM doctors 
-			WHERE id = $1 AND (clinic_id = $2 OR $2 = '')
-			UNION
-			SELECT 1 FROM clinic_doctor_links WHERE doctor_id = $1 AND clinic_id = $2
-		)
-	`, doctorID, clinicIDContext).Scan(&linked)
 
-	if err != nil || !linked {
+	// Query to check if doctor exists and if user has permission
+	// Permission:
+	// - Super Admin: Always allowed
+	// - Clinic Admin: Must be linked to one of their clinic_ids
+	query := `
+		SELECT user_id, EXISTS(
+			SELECT 1 FROM doctors d
+			LEFT JOIN clinic_doctor_links cdl ON cdl.doctor_id = d.id
+			WHERE d.id = $1 AND (
+				$2 = true OR -- Super admin
+				d.clinic_id = ANY($3) OR -- Direct ownership via clinic_id
+				cdl.clinic_id = ANY($3) -- Linked via clinic_doctor_links
+			)
+		)
+		FROM doctors WHERE id = $1
+	`
+
+	// Ensure we have at least one ID in the slice for ANY($3) to work if not super admin
+	if len(clinicIDs) == 0 && clinicIDContext != "" {
+		clinicIDs = []string{clinicIDContext}
+	}
+
+	err := config.DB.QueryRow(query, doctorID, isSuperAdmin, clinicIDs).Scan(&userID, &linked)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Doctor not found"})
+			return
+		}
+		middleware.SendDatabaseError(c, "Failed to verify doctor existence")
+		return
+	}
+
+	if !linked {
 		c.JSON(http.StatusForbidden, gin.H{
 			"error":   "Forbidden",
-			"message": "Doctor not found or you do not have permission to delete this record",
+			"message": "You do not have permission to delete this doctor record",
 		})
 		return
 	}
 
-	// 2. Perform hard delete
-	// ON DELETE CASCADE will handle clinic_doctor_links, schedules, etc.
-	_, err = config.DB.Exec(`DELETE FROM doctors WHERE id = $1`, doctorID)
+	// 2. Perform hard delete in a transaction
+	tx, err := config.DB.Begin()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete doctor record", "details": err.Error()})
+		middleware.SendDatabaseError(c, "Failed to start transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	// Delete from user_roles first to avoid FK issues
+	_, err = tx.Exec(`DELETE FROM user_roles WHERE user_id = $1`, userID)
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to clean up user roles")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Doctor record deleted successfully"})
+	// Delete doctor profile (cascades to clinic_links, schedules, etc.)
+	_, err = tx.Exec(`DELETE FROM doctors WHERE id = $1`, doctorID)
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to delete doctor profile")
+		return
+	}
+
+	// Delete user account (resolving the issue where user record remained)
+	_, err = tx.Exec(`DELETE FROM users WHERE id = $1`, userID)
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to delete associated user account")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		middleware.SendDatabaseError(c, "Failed to commit deletion")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Doctor and associated user account deleted successfully",
+	})
 }
 
 // GetDoctorsByClinic - Get all doctors linked to a specific clinic with clinic-specific fees

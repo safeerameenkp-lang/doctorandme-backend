@@ -234,7 +234,7 @@ func UpdateDepartment(c *gin.Context) {
 		return
 	}
 
-	// 1. Fetch department by ID only (no clinic scope here — UPDATE enforces it)
+	// 1. Fetch current department info for validation
 	var currentClinicID, existingName string
 	err := config.DB.QueryRow(`
 		SELECT clinic_id, name FROM departments WHERE id = $1
@@ -248,22 +248,30 @@ func UpdateDepartment(c *gin.Context) {
 		return
 	}
 
-	// 2. Build dynamic update query
+	// 2. Start transaction
+	tx, err := config.DB.Begin()
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to start transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	// 3. Build dynamic update query
 	query := `UPDATE departments SET updated_at = CURRENT_TIMESTAMP`
 	args := []interface{}{}
 	argIndex := 1
 
 	if input.Name != nil {
 		// Trim and check for name conflict only if name is changing (case-insensitive)
-		*input.Name = strings.TrimSpace(*input.Name)
-		if !strings.EqualFold(*input.Name, existingName) {
+		newName := strings.TrimSpace(*input.Name)
+		if !strings.EqualFold(newName, existingName) {
 			var nameExists bool
-			err = config.DB.QueryRow(`
+			err = tx.QueryRow(`
 				SELECT EXISTS(
 					SELECT 1 FROM departments 
 					WHERE clinic_id = $1 AND LOWER(name) = LOWER($2) AND id != $3
 				)
-			`, currentClinicID, *input.Name, departmentID).Scan(&nameExists)
+			`, currentClinicID, newName, departmentID).Scan(&nameExists)
 
 			if err != nil {
 				middleware.SendDatabaseError(c, "Failed to check department name")
@@ -280,7 +288,7 @@ func UpdateDepartment(c *gin.Context) {
 		}
 
 		query += fmt.Sprintf(`, name = $%d`, argIndex)
-		args = append(args, *input.Name)
+		args = append(args, newName)
 		argIndex++
 	}
 
@@ -296,13 +304,12 @@ func UpdateDepartment(c *gin.Context) {
 		argIndex++
 	}
 
-	// Clinic security check in the UPDATE itself:
-	//   - super_admin: clinicIDContext="" → OR $N='' is true → can update any
-	//   - clinic_admin: clinicIDContext set → must match clinic_id on the row
-	query += fmt.Sprintf(` WHERE id = $%d AND (clinic_id = $%d OR $%d = '')`, argIndex, argIndex+1, argIndex+1)
+	// 4. Finalize query with ID and Clinic security check
+	// Use NULLIF and cast to UUID to handle the empty string case for super admins safely
+	query += fmt.Sprintf(` WHERE id = $%d AND (clinic_id = NULLIF($%d, '')::uuid OR $%d = '')`, argIndex, argIndex+1, argIndex+1)
 	args = append(args, departmentID, clinicIDContext)
 
-	result, err := config.DB.Exec(query, args...)
+	result, err := tx.Exec(query, args...)
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to update department")
 		return
@@ -314,6 +321,11 @@ func UpdateDepartment(c *gin.Context) {
 			"error":   "Forbidden",
 			"message": "You do not have permission to update this department",
 		})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		middleware.SendDatabaseError(c, "Failed to commit department update")
 		return
 	}
 
@@ -366,9 +378,10 @@ func DeleteDepartment(c *gin.Context) {
 	// 3. Delete with clinic scoping:
 	//    - super_admin: clinicIDContext is "" → ($2 = '') is true → deletes any
 	//    - clinic_admin: clinicIDContext is set → must match clinic_id on the row
+	// Use NULLIF and cast to UUID to handle the empty string case for super admins safely
 	result, err := tx.Exec(`
 		DELETE FROM departments 
-		WHERE id = $1 AND (clinic_id = $2 OR $2 = '')
+		WHERE id = $1 AND (clinic_id = NULLIF($2, '')::uuid OR $2 = '')
 	`, departmentID, clinicIDContext)
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to delete department")
