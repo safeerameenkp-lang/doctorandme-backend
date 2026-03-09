@@ -106,11 +106,12 @@ type Doctor struct {
 }
 
 type ClinicDoctorLink struct {
-	ID        string    `json:"id" db:"id"`
-	ClinicID  string    `json:"clinic_id" db:"clinic_id"`
-	DoctorID  string    `json:"doctor_id" db:"doctor_id"`
-	IsActive  bool      `json:"is_active" db:"is_active"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	ID           string    `json:"id" db:"id"`
+	ClinicID     string    `json:"clinic_id" db:"clinic_id"`
+	DoctorID     string    `json:"doctor_id" db:"doctor_id"`
+	DepartmentID *string   `json:"department_id" db:"department_id"`
+	IsActive     bool      `json:"is_active" db:"is_active"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
 }
 
 type DoctorSchedule struct {

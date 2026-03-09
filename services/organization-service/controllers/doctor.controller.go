@@ -3,11 +3,12 @@ package controllers
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"organization-service/config"
 	"organization-service/models"
 	"organization-service/utils"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -366,111 +367,241 @@ func GetDoctor(c *gin.Context) {
 }
 
 type UpdateDoctorInput struct {
-	DoctorCode      *string  `json:"doctor_code" binding:"omitempty,max=20"`
-	Specialization  *string  `json:"specialization" binding:"omitempty,max=100"`
-	LicenseNumber   *string  `json:"license_number" binding:"omitempty,max=100"`
-	ConsultationFee *float64 `json:"consultation_fee" binding:"omitempty,min=0"`
-	FollowUpFee     *float64 `json:"follow_up_fee" binding:"omitempty,min=0"`
-	FollowUpDays    *int     `json:"follow_up_days" binding:"omitempty,min=1,max=365"`
-	IsMainDoctor    *bool    `json:"is_main_doctor"`
-	IsActive        *bool    `json:"is_active"`
+	// User fields
+	FirstName *string `json:"first_name" form:"first_name"`
+	LastName  *string `json:"last_name" form:"last_name"`
+	Email     *string `json:"email" form:"email"`
+	Phone     *string `json:"phone" form:"phone"`
+	Username  *string `json:"username" form:"username"`
+	Password  *string `json:"password" form:"password"`
+
+	// Doctor fields
+	DoctorCode      *string  `json:"doctor_code" form:"doctor_code"`
+	Specialization  *string  `json:"specialization" form:"specialization"`
+	LicenseNumber   *string  `json:"license_number" form:"license_number"`
+	ConsultationFee *float64 `json:"consultation_fee" form:"consultation_fee"`
+	FollowUpFee     *float64 `json:"follow_up_fee" form:"follow_up_fee"`
+	FollowUpDays    *int     `json:"follow_up_days" form:"follow_up_days"`
+	IsMainDoctor    *bool    `json:"is_main_doctor" form:"is_main_doctor"`
+	IsActive        *bool    `json:"is_active" form:"is_active"`
 }
 
 func UpdateDoctor(c *gin.Context) {
 	doctorID := c.Param("id")
+	clinicIDContext := c.GetString("clinic_id")
+
+	// 1. Check if doctor exists and get their user_id
+	var userID string
+	var currentClinicID sql.NullString
+	err := config.DB.QueryRow(`SELECT user_id, clinic_id FROM doctors WHERE id = $1`, doctorID).Scan(&userID, &currentClinicID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Doctor not found"})
+		return
+	}
+
+	// 2. Permission check: if clinic_id is provided in context, ensure doctor belongs to it
+	if clinicIDContext != "" {
+		var linked bool
+		err := config.DB.QueryRow(`
+			SELECT EXISTS(
+				SELECT 1 FROM doctors WHERE id = $1 AND (clinic_id = $2 OR $2 = '')
+				UNION
+				SELECT 1 FROM clinic_doctor_links WHERE doctor_id = $1 AND clinic_id = $2
+			)
+		`, doctorID, clinicIDContext).Scan(&linked)
+
+		if err != nil || !linked {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":   "Forbidden",
+				"message": "You do not have permission to update this doctor",
+			})
+			return
+		}
+	}
+
 	var input UpdateDoctorInput
-	if err := c.ShouldBindJSON(&input); err != nil {
+	// Support both JSON and Form (for image upload)
+	if err := c.ShouldBind(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Build dynamic update query
-	query := "UPDATE doctors SET "
-	args := []interface{}{}
-	argIndex := 1
+	// Handle Profile Image Upload
+	var profileImagePath *string
+	fileHeader, err := c.FormFile("profile_image")
+	if err == nil {
+		if err := utils.ValidateImage(fileHeader); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid image: " + err.Error()})
+			return
+		}
+
+		file, err := fileHeader.Open()
+		if err == nil {
+			defer file.Close()
+			savedPath, err := utils.SaveOptimizedImage(file, fileHeader.Filename, "doctors")
+			if err == nil {
+				profileImagePath = &savedPath
+			}
+		}
+	}
+
+	tx, err := config.DB.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	// 3. Update User Table
+	userUpdates := []string{}
+	userArgs := []interface{}{}
+	uIdx := 1
+
+	if input.FirstName != nil {
+		userUpdates = append(userUpdates, fmt.Sprintf("first_name = $%d", uIdx))
+		userArgs = append(userArgs, *input.FirstName)
+		uIdx++
+	}
+	if input.LastName != nil {
+		userUpdates = append(userUpdates, fmt.Sprintf("last_name = $%d", uIdx))
+		userArgs = append(userArgs, *input.LastName)
+		uIdx++
+	}
+	if input.Email != nil {
+		userUpdates = append(userUpdates, fmt.Sprintf("email = $%d", uIdx))
+		userArgs = append(userArgs, *input.Email)
+		uIdx++
+	}
+	if input.Phone != nil {
+		userUpdates = append(userUpdates, fmt.Sprintf("phone = $%d", uIdx))
+		userArgs = append(userArgs, *input.Phone)
+		uIdx++
+	}
+	if input.Username != nil {
+		userUpdates = append(userUpdates, fmt.Sprintf("username = $%d", uIdx))
+		userArgs = append(userArgs, *input.Username)
+		uIdx++
+	}
+	if input.Password != nil {
+		passHash, err := bcrypt.GenerateFromPassword([]byte(*input.Password), bcrypt.DefaultCost)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+			return
+		}
+		userUpdates = append(userUpdates, fmt.Sprintf("password_hash = $%d", uIdx))
+		userArgs = append(userArgs, string(passHash))
+		uIdx++
+	}
+
+	if len(userUpdates) > 0 {
+		userQuery := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d", strings.Join(userUpdates, ", "), uIdx)
+		userArgs = append(userArgs, userID)
+		if _, err := tx.Exec(userQuery, userArgs...); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user profile", "details": err.Error()})
+			return
+		}
+	}
+
+	// 4. Update Doctor Table
+	docUpdates := []string{}
+	docArgs := []interface{}{}
+	dIdx := 1
 
 	if input.DoctorCode != nil {
-		query += "doctor_code = $" + strconv.Itoa(argIndex) + ", "
-		args = append(args, *input.DoctorCode)
-		argIndex++
+		docUpdates = append(docUpdates, fmt.Sprintf("doctor_code = $%d", dIdx))
+		docArgs = append(docArgs, *input.DoctorCode)
+		dIdx++
 	}
 	if input.Specialization != nil {
-		query += "specialization = $" + strconv.Itoa(argIndex) + ", "
-		args = append(args, *input.Specialization)
-		argIndex++
+		docUpdates = append(docUpdates, fmt.Sprintf("specialization = $%d", dIdx))
+		docArgs = append(docArgs, *input.Specialization)
+		dIdx++
 	}
 	if input.LicenseNumber != nil {
-		query += "license_number = $" + strconv.Itoa(argIndex) + ", "
-		args = append(args, *input.LicenseNumber)
-		argIndex++
+		docUpdates = append(docUpdates, fmt.Sprintf("license_number = $%d", dIdx))
+		docArgs = append(docArgs, *input.LicenseNumber)
+		dIdx++
 	}
 	if input.ConsultationFee != nil {
-		query += "consultation_fee = $" + strconv.Itoa(argIndex) + ", "
-		args = append(args, *input.ConsultationFee)
-		argIndex++
+		docUpdates = append(docUpdates, fmt.Sprintf("consultation_fee = $%d", dIdx))
+		docArgs = append(docArgs, *input.ConsultationFee)
+		dIdx++
 	}
 	if input.FollowUpFee != nil {
-		query += "follow_up_fee = $" + strconv.Itoa(argIndex) + ", "
-		args = append(args, *input.FollowUpFee)
-		argIndex++
+		docUpdates = append(docUpdates, fmt.Sprintf("follow_up_fee = $%d", dIdx))
+		docArgs = append(docArgs, *input.FollowUpFee)
+		dIdx++
 	}
 	if input.FollowUpDays != nil {
-		query += "follow_up_days = $" + strconv.Itoa(argIndex) + ", "
-		args = append(args, *input.FollowUpDays)
-		argIndex++
+		docUpdates = append(docUpdates, fmt.Sprintf("follow_up_days = $%d", dIdx))
+		docArgs = append(docArgs, *input.FollowUpDays)
+		dIdx++
 	}
 	if input.IsMainDoctor != nil {
-		query += "is_main_doctor = $" + strconv.Itoa(argIndex) + ", "
-		args = append(args, *input.IsMainDoctor)
-		argIndex++
+		docUpdates = append(docUpdates, fmt.Sprintf("is_main_doctor = $%d", dIdx))
+		docArgs = append(docArgs, *input.IsMainDoctor)
+		dIdx++
 	}
 	if input.IsActive != nil {
-		query += "is_active = $" + strconv.Itoa(argIndex) + ", "
-		args = append(args, *input.IsActive)
-		argIndex++
+		docUpdates = append(docUpdates, fmt.Sprintf("is_active = $%d", dIdx))
+		docArgs = append(docArgs, *input.IsActive)
+		dIdx++
+	}
+	if profileImagePath != nil {
+		docUpdates = append(docUpdates, fmt.Sprintf("profile_image = $%d", dIdx))
+		docArgs = append(docArgs, *profileImagePath)
+		dIdx++
 	}
 
-	if len(args) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
+	if len(docUpdates) > 0 {
+		docQuery := fmt.Sprintf("UPDATE doctors SET %s WHERE id = $%d", strings.Join(docUpdates, ", "), dIdx)
+		docArgs = append(docArgs, doctorID)
+		if _, err := tx.Exec(docQuery, docArgs...); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update doctor profile", "details": err.Error()})
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit changes"})
 		return
 	}
 
-	// Remove trailing comma and add WHERE clause
-	query = query[:len(query)-2] + " WHERE id = $" + strconv.Itoa(argIndex)
-	args = append(args, doctorID)
-
-	result, err := config.DB.Exec(query, args...)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update doctor"})
-		return
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Doctor not found"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Doctor updated successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Doctor and user profiles updated successfully"})
 }
 
 func DeleteDoctor(c *gin.Context) {
 	doctorID := c.Param("id")
+	clinicIDContext := c.GetString("clinic_id")
 
-	// Soft delete by setting is_active to false
-	result, err := config.DB.Exec(`UPDATE doctors SET is_active = false WHERE id = $1`, doctorID)
+	// 1. Verify existence and permission
+	var linked bool
+	err := config.DB.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM doctors 
+			WHERE id = $1 AND (clinic_id = $2 OR $2 = '')
+			UNION
+			SELECT 1 FROM clinic_doctor_links WHERE doctor_id = $1 AND clinic_id = $2
+		)
+	`, doctorID, clinicIDContext).Scan(&linked)
+
+	if err != nil || !linked {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":   "Forbidden",
+			"message": "Doctor not found or you do not have permission to delete this record",
+		})
+		return
+	}
+
+	// 2. Perform hard delete
+	// ON DELETE CASCADE will handle clinic_doctor_links, schedules, etc.
+	_, err = config.DB.Exec(`DELETE FROM doctors WHERE id = $1`, doctorID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to deactivate doctor"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete doctor record", "details": err.Error()})
 		return
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Doctor not found"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Doctor deactivated successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Doctor record deleted successfully"})
 }
 
 // GetDoctorsByClinic - Get all doctors linked to a specific clinic with clinic-specific fees

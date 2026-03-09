@@ -16,11 +16,12 @@ import (
 type CreateClinicDoctorLinkInput struct {
 	ClinicID               string   `json:"clinic_id" binding:"required,uuid"`
 	DoctorID               string   `json:"doctor_id" binding:"required,uuid"`
-	ConsultationFeeOffline *float64 `json:"consultation_fee_offline"` // Optional: Fee for offline consultation
-	ConsultationFeeOnline  *float64 `json:"consultation_fee_online"`  // Optional: Fee for online consultation
-	FollowUpFee            *float64 `json:"follow_up_fee"`            // Optional: Follow-up fee
-	FollowUpDays           *int     `json:"follow_up_days"`           // Optional: Follow-up days validity
-	Notes                  *string  `json:"notes"`                    // Optional: Clinic-specific notes
+	DepartmentID           *string  `json:"department_id" binding:"omitempty,uuid"` // Optional: link doctor to a department within this clinic
+	ConsultationFeeOffline *float64 `json:"consultation_fee_offline"`               // Optional: Fee for offline consultation
+	ConsultationFeeOnline  *float64 `json:"consultation_fee_online"`                // Optional: Fee for online consultation
+	FollowUpFee            *float64 `json:"follow_up_fee"`                          // Optional: Follow-up fee
+	FollowUpDays           *int     `json:"follow_up_days"`                         // Optional: Follow-up days validity
+	Notes                  *string  `json:"notes"`                                  // Optional: Clinic-specific notes
 }
 
 // CreateClinicDoctorLink - Links any doctor to a clinic with clinic-specific fees
@@ -88,17 +89,32 @@ func CreateClinicDoctorLink(c *gin.Context) {
 		return
 	}
 
-	// Insert with clinic-specific fees
+	// If department_id provided, validate it belongs to the same clinic
+	if input.DepartmentID != nil {
+		var deptBelongsToClinic bool
+		err := config.DB.QueryRowContext(ctx, `
+			SELECT EXISTS(SELECT 1 FROM departments WHERE id = $1 AND clinic_id = $2 AND is_active = true)
+		`, *input.DepartmentID, input.ClinicID).Scan(&deptBelongsToClinic)
+		if err != nil || !deptBelongsToClinic {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid department",
+				"message": "The specified department does not exist or does not belong to this clinic",
+			})
+			return
+		}
+	}
+
+	// Insert with clinic-specific fees and department
 	var linkID string
 	err = config.DB.QueryRowContext(ctx, `
         INSERT INTO clinic_doctor_links (
-            clinic_id, doctor_id, 
+            clinic_id, doctor_id, department_id,
             consultation_fee_offline, consultation_fee_online,
             follow_up_fee, follow_up_days, notes
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
         RETURNING id
-    `, input.ClinicID, input.DoctorID,
+    `, input.ClinicID, input.DoctorID, input.DepartmentID,
 		input.ConsultationFeeOffline, input.ConsultationFeeOnline,
 		input.FollowUpFee, input.FollowUpDays, input.Notes).Scan(&linkID)
 
@@ -358,6 +374,7 @@ func GetClinicDoctorLinksByDoctor(c *gin.Context) {
 
 // UpdateClinicDoctorLinkFees - Update clinic-specific fees for a doctor
 type UpdateClinicDoctorLinkInput struct {
+	DepartmentID           *string  `json:"department_id" binding:"omitempty,uuid"`
 	ConsultationFeeOffline *float64 `json:"consultation_fee_offline"`
 	ConsultationFeeOnline  *float64 `json:"consultation_fee_online"`
 	FollowUpFee            *float64 `json:"follow_up_fee"`
@@ -403,9 +420,14 @@ func UpdateClinicDoctorLink(c *gin.Context) {
 	}
 
 	query := `UPDATE clinic_doctor_links SET updated_at = CURRENT_TIMESTAMP`
-	args := make([]interface{}, 0, 6)
+	args := make([]interface{}, 0, 7)
 	argIndex := 1
 
+	if input.DepartmentID != nil {
+		query += fmt.Sprintf(`, department_id = $%d`, argIndex)
+		args = append(args, *input.DepartmentID)
+		argIndex++
+	}
 	if input.ConsultationFeeOffline != nil {
 		query += fmt.Sprintf(`, consultation_fee_offline = $%d`, argIndex)
 		args = append(args, *input.ConsultationFeeOffline)

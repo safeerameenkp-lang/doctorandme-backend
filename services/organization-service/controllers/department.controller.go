@@ -119,22 +119,9 @@ func ListDepartments(c *gin.Context) {
 	clinicID := c.Query("clinic_id")
 	onlyActive := c.DefaultQuery("only_active", "false") // Changed default to false to show all entered departments
 
-	// If clinicID is not provided, try to get it from the user's context
+	// If clinicID is not provided, use the clinic_id set by the middleware (if any)
 	if clinicID == "" {
-		// Check if user is super_admin (roles are pre-populated by RequireRole middleware)
-		isSuperAdmin := false
-		roles := c.GetStringSlice("user_roles")
-		for _, role := range roles {
-			if role == "super_admin" {
-				isSuperAdmin = true
-				break
-			}
-		}
-
-		if !isSuperAdmin {
-			// If not super admin, restrict to their assigned clinic
-			clinicID = c.GetString("clinic_id")
-		}
+		clinicID = c.GetString("clinic_id")
 	}
 
 	// Build WHERE clause
@@ -239,6 +226,7 @@ func GetDepartment(c *gin.Context) {
 // UpdateDepartment - Update department details
 func UpdateDepartment(c *gin.Context) {
 	departmentID := c.Param("id")
+	clinicIDContext := c.GetString("clinic_id")
 
 	var input UpdateDepartmentInput
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -246,27 +234,27 @@ func UpdateDepartment(c *gin.Context) {
 		return
 	}
 
-	// Build dynamic update query
+	// 1. Get current department info for validation
+	var currentClinicID, existingName string
+	err := config.DB.QueryRow(`
+		SELECT clinic_id, name FROM departments 
+		WHERE id = $1 AND (clinic_id = $2 OR $2 = '')
+	`, departmentID, clinicIDContext).Scan(&currentClinicID, &existingName)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "Department not found",
+			"message": "The specified department does not exist or you don't have permission to update it",
+		})
+		return
+	}
+
+	// 2. Build dynamic update query
 	query := `UPDATE departments SET updated_at = CURRENT_TIMESTAMP`
 	args := []interface{}{}
 	argIndex := 1
 
 	if input.Name != nil {
-		// Check if new name conflicts with existing department in same clinic
-		var clinicID string
-		var existingName string
-		err := config.DB.QueryRow(`
-			SELECT clinic_id, name FROM departments WHERE id = $1
-		`, departmentID).Scan(&clinicID, &existingName)
-
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error":   "Department not found",
-				"message": "The specified department does not exist",
-			})
-			return
-		}
-
 		// Trim and check for name conflict only if name is changing (case-insensitive)
 		*input.Name = strings.TrimSpace(*input.Name)
 		if !strings.EqualFold(*input.Name, existingName) {
@@ -276,7 +264,7 @@ func UpdateDepartment(c *gin.Context) {
 					SELECT 1 FROM departments 
 					WHERE clinic_id = $1 AND LOWER(name) = LOWER($2) AND id != $3
 				)
-			`, clinicID, *input.Name, departmentID).Scan(&nameExists)
+			`, currentClinicID, *input.Name, departmentID).Scan(&nameExists)
 
 			if err != nil {
 				middleware.SendDatabaseError(c, "Failed to check department name")
@@ -309,8 +297,9 @@ func UpdateDepartment(c *gin.Context) {
 		argIndex++
 	}
 
-	query += fmt.Sprintf(` WHERE id = $%d`, argIndex)
-	args = append(args, departmentID)
+	// Finalize query with ID and Clinic security check
+	query += fmt.Sprintf(` WHERE id = $%d AND (clinic_id = $%d OR $%d = '')`, argIndex, argIndex+1, argIndex+1)
+	args = append(args, departmentID, clinicIDContext)
 
 	result, err := config.DB.Exec(query, args...)
 	if err != nil {
@@ -336,26 +325,16 @@ func UpdateDepartment(c *gin.Context) {
 func DeleteDepartment(c *gin.Context) {
 	departmentID := c.Param("id")
 
-	// Check if department has any doctors assigned
-	var doctorCount int
-	err := config.DB.QueryRow(`
-		SELECT COUNT(*) FROM doctors WHERE department_id = $1
-	`, departmentID).Scan(&doctorCount)
+	// Note: We rely on the database constraint (ON DELETE SET NULL)
+	// for the doctors table. The department will be deleted and assigned
+	// doctors will have their department_id set to NULL automatically.
 
-	if err != nil {
-		middleware.SendDatabaseError(c, "Failed to check department usage")
-		return
-	}
-
-	if doctorCount > 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Cannot delete department",
-			"message": fmt.Sprintf("Department has %d doctors assigned. Please reassign doctors before deleting.", doctorCount),
-		})
-		return
-	}
-
-	result, err := config.DB.Exec(`DELETE FROM departments WHERE id = $1`, departmentID)
+	// We scope the deletion to the clinic_id in the context (if any)
+	// If clinic_id is empty (Super Admin), it deletes globally by ID.
+	result, err := config.DB.Exec(`
+		DELETE FROM departments 
+		WHERE id = $1 AND (clinic_id = $2 OR $2 = '')
+	`, departmentID, c.GetString("clinic_id"))
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to delete department")
 		return
@@ -365,7 +344,7 @@ func DeleteDepartment(c *gin.Context) {
 	if rowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "Department not found",
-			"message": "The specified department does not exist",
+			"message": "The specified department does not exist or has already been deleted",
 		})
 		return
 	}
@@ -375,21 +354,24 @@ func DeleteDepartment(c *gin.Context) {
 	})
 }
 
-// GetDoctorsByDepartment - Get doctors in a specific department
+// GetDoctorsByDepartment - Get all doctors belonging to a specific department
+// Supports both:
+//  1. Doctors directly assigned via doctors.department_id
+//  2. Doctors linked via clinic_doctor_links.department_id
 func GetDoctorsByDepartment(c *gin.Context) {
-	departmentID := c.Param("department_id")
+	departmentID := c.Param("id")
 	onlyActive := c.DefaultQuery("only_active", "true")
 
 	// Verify department exists
-	var departmentExists bool
+	var departmentName, clinicName string
 	err := config.DB.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM departments 
-			WHERE id = $1 AND is_active = true
-		)
-	`, departmentID).Scan(&departmentExists)
+		SELECT dept.name, COALESCE(c.name, 'Unknown Clinic')
+		FROM departments dept
+		LEFT JOIN clinics c ON c.id = dept.clinic_id
+		WHERE dept.id = $1 AND dept.is_active = true
+	`, departmentID).Scan(&departmentName, &clinicName)
 
-	if err != nil || !departmentExists {
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "Department not found",
 			"message": "Department not found or is inactive",
@@ -397,34 +379,42 @@ func GetDoctorsByDepartment(c *gin.Context) {
 		return
 	}
 
-	// Build WHERE clause
-	whereConditions := []string{"d.department_id = $1"}
-	args := []interface{}{departmentID}
-	argIndex := 2
-
+	activeFilter := ""
 	if onlyActive == "true" {
-		whereConditions = append(whereConditions, fmt.Sprintf("d.is_active = $%d", argIndex))
-		args = append(args, true)
-		argIndex++
+		activeFilter = "AND d.is_active = true AND u.is_active = true"
 	}
 
-	whereClause := "WHERE " + strings.Join(whereConditions, " AND ")
-
-	// Query doctors in department
+	// Query doctors in department via UNION:
+	// 1. Doctors with department_id directly on the doctors row
+	// 2. Doctors linked to a clinic in this department via clinic_doctor_links
 	query := fmt.Sprintf(`
-		SELECT d.id, d.user_id, d.doctor_code, COALESCE(d.specialization, ''), COALESCE(d.license_number, ''),
-		       d.is_main_doctor, d.is_active, d.created_at,
-		       u.first_name, u.last_name, u.email, COALESCE(u.phone, ''),
-		       dept.name as department_name, COALESCE(c.name, 'Unknown Clinic') as clinic_name
+		SELECT DISTINCT d.id, d.user_id, COALESCE(d.doctor_code, ''), 
+		       COALESCE(d.specialization, ''), COALESCE(d.license_number, ''),
+		       d.is_main_doctor, d.is_active, d.created_at::text,
+		       u.first_name, u.last_name, COALESCE(u.email::text, ''), COALESCE(u.phone, ''),
+		       COALESCE(d.profile_image, '')
 		FROM doctors d
 		JOIN users u ON u.id = d.user_id
-		JOIN departments dept ON dept.id = d.department_id
-		LEFT JOIN clinics c ON c.id = dept.clinic_id
+		WHERE d.department_id = $1
 		%s
-		ORDER BY d.created_at DESC
-	`, whereClause)
 
-	rows, err := config.DB.Query(query, args...)
+		UNION
+
+		SELECT DISTINCT d.id, d.user_id, COALESCE(d.doctor_code, ''),
+		       COALESCE(d.specialization, ''), COALESCE(d.license_number, ''),
+		       d.is_main_doctor, d.is_active, d.created_at::text,
+		       u.first_name, u.last_name, COALESCE(u.email::text, ''), COALESCE(u.phone, ''),
+		       COALESCE(d.profile_image, '')
+		FROM doctors d
+		JOIN users u ON u.id = d.user_id
+		JOIN clinic_doctor_links cdl ON cdl.doctor_id = d.id
+		WHERE cdl.department_id = $1 AND cdl.is_active = true
+		%s
+
+		ORDER BY first_name, last_name
+	`, activeFilter, activeFilter)
+
+	rows, err := config.DB.Query(query, departmentID)
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to fetch doctors")
 		return
@@ -434,7 +424,7 @@ func GetDoctorsByDepartment(c *gin.Context) {
 	doctors := []map[string]interface{}{}
 	for rows.Next() {
 		var doctorID, userID, doctorCode, specialization, licenseNumber string
-		var firstName, lastName, email, phone, departmentName, clinicName string
+		var firstName, lastName, email, phone, profileImage string
 		var isMainDoctor, isActive bool
 		var createdAt string
 
@@ -442,35 +432,37 @@ func GetDoctorsByDepartment(c *gin.Context) {
 			&doctorID, &userID, &doctorCode, &specialization, &licenseNumber,
 			&isMainDoctor, &isActive, &createdAt,
 			&firstName, &lastName, &email, &phone,
-			&departmentName, &clinicName,
+			&profileImage,
 		)
 		if err != nil {
 			continue
 		}
 
 		doctor := map[string]interface{}{
-			"id":              doctorID,
-			"user_id":         userID,
-			"doctor_code":     doctorCode,
-			"specialization":  specialization,
-			"license_number":  licenseNumber,
-			"is_main_doctor":  isMainDoctor,
-			"is_active":       isActive,
-			"created_at":      createdAt,
-			"first_name":      firstName,
-			"last_name":       lastName,
-			"email":           email,
-			"phone":           phone,
-			"department_name": departmentName,
-			"clinic_name":     clinicName,
+			"id":             doctorID,
+			"user_id":        userID,
+			"doctor_code":    doctorCode,
+			"specialization": specialization,
+			"license_number": licenseNumber,
+			"is_main_doctor": isMainDoctor,
+			"is_active":      isActive,
+			"created_at":     createdAt,
+			"first_name":     firstName,
+			"last_name":      lastName,
+			"full_name":      firstName + " " + lastName,
+			"email":          email,
+			"phone":          phone,
+			"profile_image":  profileImage,
 		}
 
 		doctors = append(doctors, doctor)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"department_id": departmentID,
-		"doctors":       doctors,
-		"total_count":   len(doctors),
+		"department_id":   departmentID,
+		"department_name": departmentName,
+		"clinic_name":     clinicName,
+		"doctors":         doctors,
+		"total_count":     len(doctors),
 	})
 }
