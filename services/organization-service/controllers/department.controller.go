@@ -234,17 +234,16 @@ func UpdateDepartment(c *gin.Context) {
 		return
 	}
 
-	// 1. Get current department info for validation
+	// 1. Fetch department by ID only (no clinic scope here — UPDATE enforces it)
 	var currentClinicID, existingName string
 	err := config.DB.QueryRow(`
-		SELECT clinic_id, name FROM departments 
-		WHERE id = $1 AND (clinic_id = $2 OR $2 = '')
-	`, departmentID, clinicIDContext).Scan(&currentClinicID, &existingName)
+		SELECT clinic_id, name FROM departments WHERE id = $1
+	`, departmentID).Scan(&currentClinicID, &existingName)
 
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "Department not found",
-			"message": "The specified department does not exist or you don't have permission to update it",
+			"message": "The specified department does not exist",
 		})
 		return
 	}
@@ -297,7 +296,9 @@ func UpdateDepartment(c *gin.Context) {
 		argIndex++
 	}
 
-	// Finalize query with ID and Clinic security check
+	// Clinic security check in the UPDATE itself:
+	//   - super_admin: clinicIDContext="" → OR $N='' is true → can update any
+	//   - clinic_admin: clinicIDContext set → must match clinic_id on the row
 	query += fmt.Sprintf(` WHERE id = $%d AND (clinic_id = $%d OR $%d = '')`, argIndex, argIndex+1, argIndex+1)
 	args = append(args, departmentID, clinicIDContext)
 
@@ -309,9 +310,9 @@ func UpdateDepartment(c *gin.Context) {
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":   "Department not found",
-			"message": "The specified department does not exist",
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":   "Forbidden",
+			"message": "You do not have permission to update this department",
 		})
 		return
 	}
