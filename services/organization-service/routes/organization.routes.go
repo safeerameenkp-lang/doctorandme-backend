@@ -270,7 +270,7 @@ func OrganizationRoutes(rg *gin.RouterGroup, patientHandler *patient.PatientHand
 	departments.Use(middleware.AuthMiddleware(config.DB))
 	{
 		departments.POST("", middleware.RequireRole(config.DB, "super_admin", "clinic_admin"), controllers.CreateDepartment)
-		departments.GET("", controllers.ListDepartments)
+		departments.GET("", middleware.RequireRole(config.DB, "super_admin", "clinic_admin"), controllers.ListDepartments)
 		departments.GET("/:id", controllers.GetDepartment)
 		departments.PUT("/:id", middleware.RequireRole(config.DB, "super_admin", "clinic_admin"), controllers.UpdateDepartment)
 		departments.DELETE("/:id", middleware.RequireRole(config.DB, "super_admin", "clinic_admin"), controllers.DeleteDepartment)

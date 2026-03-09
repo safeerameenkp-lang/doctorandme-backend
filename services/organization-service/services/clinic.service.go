@@ -43,6 +43,18 @@ func (s *ClinicService) CreateClinic(ctx context.Context, input models.CreateCli
 		return "", nil, errors.New("user not found")
 	}
 
+	// Validate that the user is not already an organization admin
+	var isOrgAdmin bool
+	err = s.DB.QueryRowContext(opCtx, `
+		SELECT EXISTS(
+			SELECT 1 FROM user_roles ur 
+			JOIN roles r ON ur.role_id = r.id 
+			WHERE ur.user_id = $1 AND r.name = 'organization_admin'
+		)`, input.UserID).Scan(&isOrgAdmin)
+	if err == nil && isOrgAdmin {
+		return "", nil, errors.New("this user is already an organization admin and cannot be assigned as a clinic admin")
+	}
+
 	// Validate and format ClinicType
 	input.ClinicType = strings.TrimSpace(input.ClinicType)
 	if input.ClinicType == "" {
@@ -239,7 +251,18 @@ func (s *ClinicService) CreateClinicWithAdmin(ctx context.Context, input models.
 			return "", "", nil, errors.New("database error checking user: " + err.Error())
 		}
 	} else {
-		// Existing user found, we will simply link the new clinic to them
+		// Existing user found, validate that they are not already an organization admin
+		var isOrgAdmin bool
+		err = tx.QueryRowContext(opCtx, `
+			SELECT EXISTS(
+				SELECT 1 FROM user_roles ur 
+				JOIN roles r ON ur.role_id = r.id 
+				WHERE ur.user_id = $1 AND r.name = 'organization_admin'
+			)`, adminID).Scan(&isOrgAdmin)
+		if err == nil && isOrgAdmin {
+			return "", "", nil, errors.New("this user is already an organization admin and cannot be a clinic admin")
+		}
+
 		// (We don't update password here for security reasons, unless explicitly required)
 	}
 

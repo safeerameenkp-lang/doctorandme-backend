@@ -355,6 +355,21 @@ func CreateOrganizationWithAdmin(c *gin.Context) {
 			return
 		}
 	} else {
+		// Existing user found, validate that they are not already a clinic admin
+		var isClinicAdmin bool
+		err = tx.QueryRow(`
+			SELECT EXISTS(
+				SELECT 1 FROM clinics WHERE user_id = $1
+				UNION
+				SELECT 1 FROM user_roles ur 
+				JOIN roles r ON ur.role_id = r.id 
+				WHERE ur.user_id = $1 AND r.name = 'clinic_admin'
+			)`, adminID).Scan(&isClinicAdmin)
+		if err == nil && isClinicAdmin {
+			c.JSON(http.StatusConflict, gin.H{"error": "This user is already a clinic admin and cannot be an organization admin"})
+			return
+		}
+
 		// Existing user found, we will simply link them to the new organization
 	}
 

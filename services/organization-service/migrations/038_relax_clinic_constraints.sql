@@ -5,3 +5,9 @@ ALTER TABLE clinics DROP CONSTRAINT IF EXISTS unique_clinic_code CASCADE;
 
 -- Also remove unique index if it exists explicitly
 DROP INDEX IF EXISTS idx_clinics_clinic_code;
+
+
+
+
+
+

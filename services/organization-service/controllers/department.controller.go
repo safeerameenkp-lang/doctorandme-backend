@@ -6,8 +6,9 @@ import (
 	"organization-service/config"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"organization-service/middleware"
+
+	"github.com/gin-gonic/gin"
 )
 
 // =====================================================
@@ -53,7 +54,7 @@ func CreateDepartment(c *gin.Context) {
 			WHERE id = $1 AND is_active = true
 		)
 	`, input.ClinicID).Scan(&clinicExists)
-	
+
 	if err != nil || !clinicExists {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "Clinic not found",
@@ -62,20 +63,23 @@ func CreateDepartment(c *gin.Context) {
 		return
 	}
 
-	// Check if department name already exists for this clinic
+	// Trim name for consistency
+	input.Name = strings.TrimSpace(input.Name)
+
+	// Check if department name already exists for this clinic (case-insensitive)
 	var nameExists bool
 	err = config.DB.QueryRow(`
 		SELECT EXISTS(
 			SELECT 1 FROM departments 
-			WHERE clinic_id = $1 AND name = $2
+			WHERE clinic_id = $1 AND LOWER(name) = LOWER($2)
 		)
 	`, input.ClinicID, input.Name).Scan(&nameExists)
-	
+
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to check department name")
 		return
 	}
-	
+
 	if nameExists {
 		c.JSON(http.StatusConflict, gin.H{
 			"error":   "Department name exists",
@@ -91,14 +95,14 @@ func CreateDepartment(c *gin.Context) {
 		VALUES ($1, $2, $3)
 		RETURNING id
 	`, input.ClinicID, input.Name, input.Description).Scan(&departmentID)
-	
+
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to create department")
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":     "Department created successfully",
+		"message":       "Department created successfully",
 		"department_id": departmentID,
 		"department": gin.H{
 			"id":          departmentID,
@@ -113,7 +117,25 @@ func CreateDepartment(c *gin.Context) {
 // ListDepartments - List departments for a clinic
 func ListDepartments(c *gin.Context) {
 	clinicID := c.Query("clinic_id")
-	onlyActive := c.DefaultQuery("only_active", "true")
+	onlyActive := c.DefaultQuery("only_active", "false") // Changed default to false to show all entered departments
+
+	// If clinicID is not provided, try to get it from the user's context
+	if clinicID == "" {
+		// Check if user is super_admin (roles are pre-populated by RequireRole middleware)
+		isSuperAdmin := false
+		roles := c.GetStringSlice("user_roles")
+		for _, role := range roles {
+			if role == "super_admin" {
+				isSuperAdmin = true
+				break
+			}
+		}
+
+		if !isSuperAdmin {
+			// If not super admin, restrict to their assigned clinic
+			clinicID = c.GetString("clinic_id")
+		}
+	}
 
 	// Build WHERE clause
 	whereConditions := []string{}
@@ -137,12 +159,12 @@ func ListDepartments(c *gin.Context) {
 		whereClause = "WHERE " + strings.Join(whereConditions, " AND ")
 	}
 
-	// Query departments with clinic names
+	// Query departments with clinic names - Use COALESCE to handle NULL descriptions/names
 	query := fmt.Sprintf(`
-		SELECT d.id, d.clinic_id, d.name, d.description, d.is_active, 
-		       d.created_at, d.updated_at, c.name as clinic_name
+		SELECT d.id, d.clinic_id, d.name, COALESCE(d.description, ''), d.is_active, 
+		       d.created_at, d.updated_at, COALESCE(c.name, 'Unknown Clinic') as clinic_name
 		FROM departments d
-		JOIN clinics c ON c.id = d.clinic_id
+		LEFT JOIN clinics c ON c.id = d.clinic_id
 		%s
 		ORDER BY d.name ASC
 	`, whereClause)
@@ -173,7 +195,7 @@ func ListDepartments(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"departments":  departments,
+		"departments": departments,
 		"total_count": len(departments),
 	})
 }
@@ -186,10 +208,10 @@ func GetDepartment(c *gin.Context) {
 	var createdAt, updatedAt string
 
 	err := config.DB.QueryRow(`
-		SELECT d.id, d.clinic_id, d.name, d.description, d.is_active,
-		       d.created_at, d.updated_at, c.name as clinic_name
+		SELECT d.id, d.clinic_id, d.name, COALESCE(d.description, ''), d.is_active,
+		       d.created_at, d.updated_at, COALESCE(c.name, 'Unknown Clinic') as clinic_name
 		FROM departments d
-		JOIN clinics c ON c.id = d.clinic_id
+		LEFT JOIN clinics c ON c.id = d.clinic_id
 		WHERE d.id = $1
 	`, departmentID).Scan(
 		&dept.ID, &dept.ClinicID, &dept.Name, &dept.Description,
@@ -236,7 +258,7 @@ func UpdateDepartment(c *gin.Context) {
 		err := config.DB.QueryRow(`
 			SELECT clinic_id, name FROM departments WHERE id = $1
 		`, departmentID).Scan(&clinicID, &existingName)
-		
+
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error":   "Department not found",
@@ -245,21 +267,22 @@ func UpdateDepartment(c *gin.Context) {
 			return
 		}
 
-		// Check for name conflict only if name is changing
-		if *input.Name != existingName {
+		// Trim and check for name conflict only if name is changing (case-insensitive)
+		*input.Name = strings.TrimSpace(*input.Name)
+		if !strings.EqualFold(*input.Name, existingName) {
 			var nameExists bool
 			err = config.DB.QueryRow(`
 				SELECT EXISTS(
 					SELECT 1 FROM departments 
-					WHERE clinic_id = $1 AND name = $2 AND id != $3
+					WHERE clinic_id = $1 AND LOWER(name) = LOWER($2) AND id != $3
 				)
 			`, clinicID, *input.Name, departmentID).Scan(&nameExists)
-			
+
 			if err != nil {
 				middleware.SendDatabaseError(c, "Failed to check department name")
 				return
 			}
-			
+
 			if nameExists {
 				c.JSON(http.StatusConflict, gin.H{
 					"error":   "Department name exists",
@@ -318,12 +341,12 @@ func DeleteDepartment(c *gin.Context) {
 	err := config.DB.QueryRow(`
 		SELECT COUNT(*) FROM doctors WHERE department_id = $1
 	`, departmentID).Scan(&doctorCount)
-	
+
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to check department usage")
 		return
 	}
-	
+
 	if doctorCount > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "Cannot delete department",
@@ -365,7 +388,7 @@ func GetDoctorsByDepartment(c *gin.Context) {
 			WHERE id = $1 AND is_active = true
 		)
 	`, departmentID).Scan(&departmentExists)
-	
+
 	if err != nil || !departmentExists {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "Department not found",
@@ -389,14 +412,14 @@ func GetDoctorsByDepartment(c *gin.Context) {
 
 	// Query doctors in department
 	query := fmt.Sprintf(`
-		SELECT d.id, d.user_id, d.doctor_code, d.specialization, d.license_number,
+		SELECT d.id, d.user_id, d.doctor_code, COALESCE(d.specialization, ''), COALESCE(d.license_number, ''),
 		       d.is_main_doctor, d.is_active, d.created_at,
-		       u.first_name, u.last_name, u.email, u.phone,
-		       dept.name as department_name, c.name as clinic_name
+		       u.first_name, u.last_name, u.email, COALESCE(u.phone, ''),
+		       dept.name as department_name, COALESCE(c.name, 'Unknown Clinic') as clinic_name
 		FROM doctors d
 		JOIN users u ON u.id = d.user_id
 		JOIN departments dept ON dept.id = d.department_id
-		JOIN clinics c ON c.id = dept.clinic_id
+		LEFT JOIN clinics c ON c.id = dept.clinic_id
 		%s
 		ORDER BY d.created_at DESC
 	`, whereClause)
