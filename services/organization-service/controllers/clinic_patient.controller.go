@@ -302,8 +302,12 @@ func CreateClinicPatient(c *gin.Context) {
 		SELECT 
 			EXISTS(SELECT 1 FROM clinics WHERE id = $1 AND is_active = true) as clinic_exists,
 			COALESCE((SELECT clinic_code FROM clinics WHERE id = $1), '') as clinic_code,
-			(SELECT id FROM clinic_patients WHERE clinic_id = $1 AND phone = $2 AND is_active = true LIMIT 1) as existing_patient_id
-	`, clinicID, input.Phone).Scan(&clinicExists, &clinicCode, &existingPatientID)
+			(SELECT id FROM clinic_patients 
+			 WHERE clinic_id = $1 AND phone = $2 
+			   AND LOWER(first_name) = LOWER($3) 
+			   AND LOWER(COALESCE(last_name, '')) = LOWER($4) 
+			   AND is_active = true LIMIT 1) as existing_patient_id
+	`, clinicID, input.Phone, input.FirstName, ptrToStr(input.LastName)).Scan(&clinicExists, &clinicCode, &existingPatientID)
 
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to validate context")
