@@ -52,14 +52,20 @@ func GetDashboardStats(c *gin.Context) {
 		}
 	}
 
+	date := c.Query("date")
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
+
+	if date != "" {
+		startDateStr = date
+		endDateStr = date
+	}
 
 	var startDate, endDate time.Time
 	var err error
 
 	// Default to today if no dates
-	if startDateStr == "" {
+	if startDateStr == "" && endDateStr == "" {
 		startDate = time.Now().Truncate(24 * time.Hour)
 		endDate = startDate
 	} else {

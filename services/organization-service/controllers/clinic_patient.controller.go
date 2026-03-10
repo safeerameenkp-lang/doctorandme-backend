@@ -62,10 +62,12 @@ type CreateClinicPatientInput struct {
 	DateOfBirth    *string `json:"date_of_birth"`
 	Age            *int    `json:"age" binding:"omitempty,min=0,max=150"`
 	Gender         *string `json:"gender" binding:"omitempty,max=20"`
+	Address        *string `json:"address"`
 	Address1       *string `json:"address1" binding:"omitempty,max=200"`
 	Address2       *string `json:"address2" binding:"omitempty,max=200"`
 	District       *string `json:"district" binding:"omitempty,max=100"`
 	State          *string `json:"state" binding:"omitempty,max=100"`
+	BirthTime      *string `json:"birth_time"`
 	MOID           *string `json:"mo_id" binding:"omitempty,max=50"`
 	MedicalHistory *string `json:"medical_history"`
 	Allergies      *string `json:"allergies"`
@@ -85,10 +87,12 @@ type UpdateClinicPatientInput struct {
 	DateOfBirth    *string `json:"date_of_birth"`
 	Age            *int    `json:"age" binding:"omitempty,min=0,max=150"`
 	Gender         *string `json:"gender" binding:"omitempty,max=20"`
+	Address        *string `json:"address"`
 	Address1       *string `json:"address1" binding:"omitempty,max=200"`
 	Address2       *string `json:"address2" binding:"omitempty,max=200"`
 	District       *string `json:"district" binding:"omitempty,max=100"`
 	State          *string `json:"state" binding:"omitempty,max=100"`
+	BirthTime      *string `json:"birth_time"`
 	MOID           *string `json:"mo_id" binding:"omitempty,max=50"`
 	MedicalHistory *string `json:"medical_history"`
 	Allergies      *string `json:"allergies"`
@@ -200,10 +204,12 @@ type ClinicPatientResponse struct {
 	DateOfBirth     string    `json:"date_of_birth"`
 	Age             int       `json:"age"`
 	Gender          string    `json:"gender"`
+	Address         string    `json:"address"`
 	Address1        string    `json:"address1"`
 	Address2        string    `json:"address2"`
 	District        string    `json:"district"`
 	State           string    `json:"state"`
+	BirthTime       string    `json:"birth_time"`
 	MOID            string    `json:"mo_id"`
 	MedicalHistory  string    `json:"medical_history"`
 	Allergies       string    `json:"allergies"`
@@ -327,8 +333,8 @@ func CreateClinicPatient(c *gin.Context) {
 		err := config.DB.QueryRowContext(ctx, `
 			SELECT id, clinic_id, first_name, last_name, phone, 
 			       COALESCE(email, ''), COALESCE(date_of_birth::text, ''), COALESCE(age, 0), COALESCE(gender, ''),
-			       COALESCE(address1, ''), COALESCE(address2, ''), COALESCE(district, ''), COALESCE(state, ''),
-			       COALESCE(mo_id, ''), COALESCE(medical_history, ''), COALESCE(allergies, ''), 
+			       COALESCE(address, ''), COALESCE(address1, ''), COALESCE(address2, ''), COALESCE(district, ''), COALESCE(state, ''),
+			       COALESCE(birth_time, ''), COALESCE(mo_id, ''), COALESCE(medical_history, ''), COALESCE(allergies, ''), 
 			       COALESCE(blood_group, ''), COALESCE(smoking_status, ''), COALESCE(alcohol_use, ''), 
 			       COALESCE(height_cm, 0), COALESCE(weight_kg, 0), 
 			       is_active, COALESCE(global_patient_id::text, ''),
@@ -339,8 +345,8 @@ func CreateClinicPatient(c *gin.Context) {
 		`, existingPatientID.String).Scan(
 			&patient.ID, &patient.ClinicID, &patient.FirstName, &patient.LastName,
 			&patient.Phone, &patient.Email, &patient.DateOfBirth, &patient.Age, &patient.Gender,
-			&patient.Address1, &patient.Address2, &patient.District, &patient.State,
-			&patient.MOID, &patient.MedicalHistory, &patient.Allergies, &patient.BloodGroup,
+			&patient.Address, &patient.Address1, &patient.Address2, &patient.District, &patient.State,
+			&patient.BirthTime, &patient.MOID, &patient.MedicalHistory, &patient.Allergies, &patient.BloodGroup,
 			&patient.SmokingStatus, &patient.AlcoholUse, &patient.HeightCm, &patient.WeightKg,
 			&patient.IsActive, &patient.GlobalPatientID,
 			&patient.CurrentFollowupStatus, &patient.LastAppointmentID, &patient.LastFollowupID,
@@ -430,15 +436,15 @@ func CreateClinicPatient(c *gin.Context) {
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO clinic_patients (
 			clinic_id, first_name, last_name, phone, email, date_of_birth, age, gender,
-			address1, address2, district, state, mo_id, medical_history, allergies, 
+			address, address1, address2, district, state, birth_time, mo_id, medical_history, allergies, 
 			blood_group, smoking_status, alcohol_use, height_cm, weight_kg, 
 			is_active, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		RETURNING id, created_at, updated_at
 	`, clinicID, input.FirstName, input.LastName, input.Phone, input.Email,
-		input.DateOfBirth, input.Age, input.Gender, input.Address1, input.Address2,
-		input.District, input.State, input.MOID, input.MedicalHistory, input.Allergies,
+		input.DateOfBirth, input.Age, input.Gender, input.Address, input.Address1, input.Address2,
+		input.District, input.State, input.BirthTime, input.MOID, input.MedicalHistory, input.Allergies,
 		input.BloodGroup, input.SmokingStatus, input.AlcoholUse, input.HeightCm, input.WeightKg).Scan(&patientID, &createdAt, &updatedAt)
 
 	if err != nil {
@@ -462,10 +468,12 @@ func CreateClinicPatient(c *gin.Context) {
 		DateOfBirth:    ptrToStr(input.DateOfBirth),
 		Age:            ptrToInt(input.Age),
 		Gender:         ptrToStr(input.Gender),
+		Address:        ptrToStr(input.Address),
 		Address1:       ptrToStr(input.Address1),
 		Address2:       ptrToStr(input.Address2),
 		District:       ptrToStr(input.District),
 		State:          ptrToStr(input.State),
+		BirthTime:      ptrToStr(input.BirthTime),
 		MOID:           ptrToStr(input.MOID),
 		MedicalHistory: ptrToStr(input.MedicalHistory),
 		Allergies:      ptrToStr(input.Allergies),
@@ -518,8 +526,8 @@ func ListClinicPatients(c *gin.Context) {
 	query := `
 		SELECT cp.id, cp.clinic_id, cp.first_name, cp.last_name, cp.phone, 
 		       COALESCE(cp.email, ''), COALESCE(cp.date_of_birth::text, ''), COALESCE(cp.age, 0), COALESCE(cp.gender, ''),
-		       COALESCE(cp.address1, ''), COALESCE(cp.address2, ''), COALESCE(cp.district, ''), COALESCE(cp.state, ''), 
-		       COALESCE(cp.mo_id, ''), COALESCE(cp.medical_history, ''), COALESCE(cp.allergies, ''), 
+		       COALESCE(cp.address, ''), COALESCE(cp.address1, ''), COALESCE(cp.address2, ''), COALESCE(cp.district, ''), COALESCE(cp.state, ''), 
+		       COALESCE(cp.birth_time, ''), COALESCE(cp.mo_id, ''), COALESCE(cp.medical_history, ''), COALESCE(cp.allergies, ''), 
 		       COALESCE(cp.blood_group, ''), COALESCE(cp.smoking_status, ''), COALESCE(cp.alcohol_use, ''), 
 		       COALESCE(cp.height_cm, 0), COALESCE(cp.weight_kg, 0), 
 		       cp.is_active, COALESCE(cp.global_patient_id::text, ''),
@@ -574,8 +582,8 @@ func ListClinicPatients(c *gin.Context) {
 		err := rows.Scan(
 			&patient.ID, &patient.ClinicID, &patient.FirstName, &patient.LastName,
 			&patient.Phone, &patient.Email, &patient.DateOfBirth, &patient.Age, &patient.Gender,
-			&patient.Address1, &patient.Address2, &patient.District, &patient.State,
-			&patient.MOID, &patient.MedicalHistory, &patient.Allergies, &patient.BloodGroup,
+			&patient.Address, &patient.Address1, &patient.Address2, &patient.District, &patient.State,
+			&patient.BirthTime, &patient.MOID, &patient.MedicalHistory, &patient.Allergies, &patient.BloodGroup,
 			&patient.SmokingStatus, &patient.AlcoholUse, &patient.HeightCm, &patient.WeightKg,
 			&patient.IsActive, &patient.GlobalPatientID,
 			&patient.CurrentFollowupStatus, &patient.LastAppointmentID, &patient.LastFollowupID,
@@ -831,8 +839,8 @@ func GetClinicPatient(c *gin.Context) {
 	err := config.DB.QueryRowContext(ctx, `
 		SELECT cp.id, cp.clinic_id, cp.first_name, cp.last_name, cp.phone, 
 		       COALESCE(cp.email, ''), COALESCE(cp.date_of_birth::text, ''), COALESCE(cp.age, 0), COALESCE(cp.gender, ''),
-		       COALESCE(cp.address1, ''), COALESCE(cp.address2, ''), COALESCE(cp.district, ''), COALESCE(cp.state, ''), 
-		       COALESCE(cp.mo_id, ''), COALESCE(cp.medical_history, ''), COALESCE(cp.allergies, ''), 
+		       COALESCE(cp.address, ''), COALESCE(cp.address1, ''), COALESCE(cp.address2, ''), COALESCE(cp.district, ''), COALESCE(cp.state, ''), 
+		       COALESCE(cp.birth_time, ''), COALESCE(cp.mo_id, ''), COALESCE(cp.medical_history, ''), COALESCE(cp.allergies, ''), 
 		       COALESCE(cp.blood_group, ''), COALESCE(cp.smoking_status, ''), COALESCE(cp.alcohol_use, ''), 
 		       COALESCE(cp.height_cm, 0), COALESCE(cp.weight_kg, 0), 
 		       cp.is_active, COALESCE(cp.global_patient_id::text, ''),
@@ -844,8 +852,8 @@ func GetClinicPatient(c *gin.Context) {
 	`, patientID, clinicID).Scan(
 		&patient.ID, &patient.ClinicID, &patient.FirstName, &patient.LastName,
 		&patient.Phone, &patient.Email, &patient.DateOfBirth, &patient.Age, &patient.Gender,
-		&patient.Address1, &patient.Address2, &patient.District, &patient.State,
-		&patient.MOID, &patient.MedicalHistory, &patient.Allergies, &patient.BloodGroup,
+		&patient.Address, &patient.Address1, &patient.Address2, &patient.District, &patient.State,
+		&patient.BirthTime, &patient.MOID, &patient.MedicalHistory, &patient.Allergies, &patient.BloodGroup,
 		&patient.SmokingStatus, &patient.AlcoholUse, &patient.HeightCm, &patient.WeightKg,
 		&patient.IsActive, &patient.GlobalPatientID,
 		&patient.CurrentFollowupStatus, &patient.LastAppointmentID, &patient.LastFollowupID,
@@ -951,6 +959,12 @@ func UpdateClinicPatient(c *gin.Context) {
 		argIndex++
 	}
 
+	if input.Address != nil {
+		setParts = append(setParts, fmt.Sprintf("address = $%d", argIndex))
+		args = append(args, *input.Address)
+		argIndex++
+	}
+
 	if input.Address1 != nil {
 		setParts = append(setParts, fmt.Sprintf("address1 = $%d", argIndex))
 		args = append(args, *input.Address1)
@@ -972,6 +986,12 @@ func UpdateClinicPatient(c *gin.Context) {
 	if input.State != nil {
 		setParts = append(setParts, fmt.Sprintf("state = $%d", argIndex))
 		args = append(args, *input.State)
+		argIndex++
+	}
+
+	if input.BirthTime != nil {
+		setParts = append(setParts, fmt.Sprintf("birth_time = $%d", argIndex))
+		args = append(args, *input.BirthTime)
 		argIndex++
 	}
 
@@ -1054,8 +1074,8 @@ func UpdateClinicPatient(c *gin.Context) {
 		WHERE id = $%d AND clinic_id = $%d
 		RETURNING id, clinic_id, first_name, last_name, phone, 
 		          COALESCE(email, ''), COALESCE(date_of_birth::text, ''), COALESCE(age, 0), COALESCE(gender, ''),
-		          COALESCE(address1, ''), COALESCE(address2, ''), COALESCE(district, ''), COALESCE(state, ''), 
-		          COALESCE(mo_id, ''), COALESCE(medical_history, ''), COALESCE(allergies, ''), 
+		          COALESCE(address, ''), COALESCE(address1, ''), COALESCE(address2, ''), COALESCE(district, ''), COALESCE(state, ''), 
+		          COALESCE(birth_time, ''), COALESCE(mo_id, ''), COALESCE(medical_history, ''), COALESCE(allergies, ''), 
 		          COALESCE(blood_group, ''), COALESCE(smoking_status, ''), COALESCE(alcohol_use, ''), 
 		          COALESCE(height_cm, 0), COALESCE(weight_kg, 0), 
 		          is_active, COALESCE(global_patient_id::text, ''),
@@ -1070,8 +1090,8 @@ func UpdateClinicPatient(c *gin.Context) {
 	err := config.DB.QueryRowContext(ctx, query, args...).Scan(
 		&patient.ID, &patient.ClinicID, &patient.FirstName, &patient.LastName,
 		&patient.Phone, &patient.Email, &patient.DateOfBirth, &patient.Age, &patient.Gender,
-		&patient.Address1, &patient.Address2, &patient.District, &patient.State,
-		&patient.MOID, &patient.MedicalHistory, &patient.Allergies, &patient.BloodGroup,
+		&patient.Address, &patient.Address1, &patient.Address2, &patient.District, &patient.State,
+		&patient.BirthTime, &patient.MOID, &patient.MedicalHistory, &patient.Allergies, &patient.BloodGroup,
 		&patient.SmokingStatus, &patient.AlcoholUse, &patient.HeightCm, &patient.WeightKg,
 		&patient.IsActive, &patient.GlobalPatientID,
 		&patient.CurrentFollowupStatus, &patient.LastAppointmentID, &patient.LastFollowupID,
