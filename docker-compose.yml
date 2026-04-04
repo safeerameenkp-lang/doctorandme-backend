@@ -67,7 +67,9 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      - clinic_network
+      clinic_network:
+        aliases:
+          - auth-service
 
   organization-service:
     build:
@@ -90,7 +92,9 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      - clinic_network
+      clinic_network:
+        aliases:
+          - organization-service
 
   appointment-service:
     build:
@@ -111,7 +115,9 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      - clinic_network
+      clinic_network:
+        aliases:
+          - appointment-service
 
   # ----------------------
   # Kong API Gateway
