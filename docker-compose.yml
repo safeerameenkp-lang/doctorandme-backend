@@ -1,3 +1,6 @@
+# Docker Compose for DoctorAndMe Backend
+# Contains Auth, Organization, and Appointment microservices.
+
 services:
 
   # ----------------------
@@ -61,10 +64,6 @@ services:
     depends_on:
       auth-migrations:
         condition: service_completed_successfully
-      organization-migrations:
-        condition: service_completed_successfully
-      appointment-migrations:
-        condition: service_completed_successfully
     restart: unless-stopped
     networks:
       clinic_network:
@@ -84,11 +83,7 @@ services:
     volumes:
       - ./services/organization-service/uploads:/root/uploads
     depends_on:
-      auth-migrations:
-        condition: service_completed_successfully
       organization-migrations:
-        condition: service_completed_successfully
-      appointment-migrations:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
@@ -107,10 +102,6 @@ services:
     environment:
       PORT: 8082
     depends_on:
-      auth-migrations:
-        condition: service_completed_successfully
-      organization-migrations:
-        condition: service_completed_successfully
       appointment-migrations:
         condition: service_completed_successfully
     restart: unless-stopped
@@ -120,7 +111,7 @@ services:
           - appointment-service
 
   # ----------------------
-  # Kong API Gateway
+  # Kong API Gateway Configuration
   # ----------------------
   kong:
     image: kong:3.4
@@ -178,7 +169,6 @@ services:
 # ----------------------
 volumes:
   pgadmin_data:
-
 
 networks:
   clinic_network:
