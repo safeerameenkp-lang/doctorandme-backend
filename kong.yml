@@ -4,16 +4,17 @@ _transform: true
 services:
   # ----------------------
   # Auth Service
+  # Gateway: /auth or /api/auth -> Backend: /api/auth
   # ----------------------
   - name: auth-service
-    url: http://auth-service:8080/api/auth
+    url: http://auth-service:8080/api
     routes:
       - name: auth-root
         paths: ["/"]
         strip_path: false
       - name: auth-route
-        paths: ["/auth"]
-        strip_path: true
+        paths: ["/auth", "/api/auth"]
+        strip_path: false
     plugins:
       - name: cors
         config:
@@ -29,14 +30,15 @@ services:
           policy: local
 
   # ----------------------
-  # Organization Service API
+  # Organization Service (Consolidated)
+  # Gateway: /api, /organization, or /uploads -> Backend: /api, /organization, or /uploads
   # ----------------------
   - name: organization-service
-    url: http://organization-service:8081/api
+    url: http://organization-service:8081
     routes:
       - name: organization-route
-        paths: ["/organization"]
-        strip_path: true
+        paths: ["/api", "/organization", "/uploads"]
+        strip_path: false
     plugins:
       - name: cors
         config:
@@ -50,33 +52,17 @@ services:
         config:
           minute: 60
           policy: local
-
-  # ----------------------
-  # Organization Service Uploads
-  # ----------------------
-  - name: organization-uploads
-    url: http://organization-service:8081/uploads
-    routes:
-      - name: uploads-route
-        paths: ["/uploads"]
-        strip_path: true
-    plugins:
-      - name: cors
-        config:
-          origins: ["*"]
-          methods: ["GET", "OPTIONS"]
-          headers: ["Accept", "Content-Type"]
-          credentials: true
 
   # ----------------------
   # Appointment Service
+  # Gateway: /appointment or /api/v1 -> Backend: /api/v1
   # ----------------------
   - name: appointment-service
-    url: http://appointment-service:8082/api/v1
+    url: http://appointment-service:8082/api
     routes:
       - name: appointment-route
-        paths: ["/appointment"]
-        strip_path: true
+        paths: ["/appointment", "/v1", "/api/v1"]
+        strip_path: false
     plugins:
       - name: cors
         config:
