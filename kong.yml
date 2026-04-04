@@ -1,44 +1,26 @@
-_format_version: "3.0"
+_format_version: "2.1"
 _transform: true
 
 services:
+  # ----------------------
   # Auth Service
+  # ----------------------
   - name: auth-service
-    url: http://auth-service:8080
+    url: http://auth-service:8080/api/auth
     routes:
-      - name: auth-routes
-        paths:
-          - /api/auth
+      - name: auth-root
+        paths: ["/"]
         strip_path: false
-        preserve_host: true
-        methods:
-          - GET
-          - POST
-          - PUT
-          - DELETE
-          - PATCH
-          - OPTIONS
+      - name: auth-route
+        paths: ["/auth"]
+        strip_path: true
     plugins:
       - name: cors
         config:
-          origins:
-            - "*"
-          methods:
-            - GET
-            - POST
-            - PUT
-            - DELETE
-            - PATCH
-            - OPTIONS
-          headers:
-            - Accept
-            - Accept-Language
-            - Content-Language
-            - Content-Type
-            - Authorization
-            - X-Requested-With
-          exposed_headers:
-            - X-Auth-Token
+          origins: ["*"]
+          methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+          headers: ["Accept", "Accept-Language", "Content-Language", "Content-Type", "Authorization", "X-Requested-With"]
+          exposed_headers: ["X-Auth-Token"]
           credentials: true
           max_age: 3600
       - name: rate-limiting
@@ -46,100 +28,65 @@ services:
           minute: 60
           policy: local
 
-  # Organization Service
+  # ----------------------
+  # Organization Service API
+  # ----------------------
   - name: organization-service
-    url: http://organization-service:8081
+    url: http://organization-service:8081/api
     routes:
-      - name: organization-routes
-        paths:
-          - /api
-        strip_path: false
-        preserve_host: true
-        methods:
-          - GET
-          - POST
-          - PUT
-          - DELETE
-          - PATCH
-          - OPTIONS
-      # Dedicated route for uploaded files (images, documents, etc.)
+      - name: organization-route
+        paths: ["/organization"]
+        strip_path: true
+    plugins:
+      - name: cors
+        config:
+          origins: ["*"]
+          methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+          headers: ["Accept", "Accept-Language", "Content-Language", "Content-Type", "Authorization", "X-Requested-With"]
+          exposed_headers: ["X-Auth-Token"]
+          credentials: true
+          max_age: 3600
+      - name: rate-limiting
+        config:
+          minute: 60
+          policy: local
+
+  # ----------------------
+  # Organization Service Uploads
+  # ----------------------
+  - name: organization-uploads
+    url: http://organization-service:8081/uploads
+    routes:
       - name: uploads-route
-        paths:
-          - /uploads
-        strip_path: false
-        preserve_host: true
-        methods:
-          - GET
-          - OPTIONS
+        paths: ["/uploads"]
+        strip_path: true
     plugins:
       - name: cors
         config:
-          origins:
-            - "*"
-          methods:
-            - GET
-            - POST
-            - PUT
-            - DELETE
-            - PATCH
-            - OPTIONS
-          headers:
-            - Accept
-            - Accept-Language
-            - Content-Language
-            - Content-Type
-            - Authorization
-            - X-Requested-With
-          exposed_headers:
-            - X-Auth-Token
+          origins: ["*"]
+          methods: ["GET", "OPTIONS"]
+          headers: ["Accept", "Content-Type"]
           credentials: true
-          max_age: 3600
-      - name: rate-limiting
-        config:
-          minute: 60
-          policy: local
 
+  # ----------------------
   # Appointment Service
+  # ----------------------
   - name: appointment-service
-    url: http://appointment-service:8082
+    url: http://appointment-service:8082/api/v1
     routes:
-      - name: appointment-routes
-        paths:
-          - /api/v1
-        strip_path: false
-        preserve_host: true
-        methods:
-          - GET
-          - POST
-          - PUT
-          - DELETE
-          - PATCH
-          - OPTIONS
+      - name: appointment-route
+        paths: ["/appointment"]
+        strip_path: true
     plugins:
       - name: cors
         config:
-          origins:
-            - "*"
-          methods:
-            - GET
-            - POST
-            - PUT
-            - DELETE
-            - PATCH
-            - OPTIONS
-          headers:
-            - Accept
-            - Accept-Language
-            - Content-Language
-            - Content-Type
-            - Authorization
-            - X-Requested-With
-          exposed_headers:
-            - X-Auth-Token
+          origins: ["*"]
+          methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+          headers: ["Accept", "Accept-Language", "Content-Language", "Content-Type", "Authorization", "X-Requested-With"]
+          exposed_headers: ["X-Auth-Token"]
           credentials: true
           max_age: 3600
       - name: rate-limiting
         config:
           minute: 60
           policy: local
-
