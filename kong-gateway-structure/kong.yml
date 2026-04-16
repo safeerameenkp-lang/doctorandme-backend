@@ -6,6 +6,13 @@ services:
   - name: auth-service
     url: http://auth-service:8080
     routes:
+      - name: auth-health-check
+        paths:
+          - /api/auth/health
+        strip_path: false
+        methods:
+          - GET
+          - OPTIONS
       - name: auth-routes
         paths:
           - /api/auth
