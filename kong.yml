@@ -9,8 +9,8 @@ services:
       - name: auth-routes
         paths:
           - /api/auth
-        strip_path: false
-        preserve_host: true
+        strip_path: true
+        preserve_host: false
         methods:
           - GET
           - POST
@@ -53,8 +53,8 @@ services:
       - name: appointment-routes
         paths:
           - /api/v1
-        strip_path: false
-        preserve_host: true
+        strip_path: true
+        preserve_host: false
         methods:
           - GET
           - POST
@@ -97,8 +97,8 @@ services:
       - name: organization-routes
         paths:
           - /api
-        strip_path: false
-        preserve_host: true
+        strip_path: true
+        preserve_host: false
         methods:
           - GET
           - POST
@@ -110,8 +110,8 @@ services:
       - name: uploads-route
         paths:
           - /uploads
-        strip_path: false
-        preserve_host: true
+        strip_path: true
+        preserve_host: false
         methods:
           - GET
           - OPTIONS
