@@ -133,7 +133,7 @@ services:
     networks:
       - doctorandme-network
     volumes:
-      - ./kong.yml:/kong/kong.yml:ro
+      - ./kong-gateway-structure/kong.yml:/kong/kong.yml:ro
     restart: unless-stopped
     healthcheck:
       test: [ "CMD-SHELL", "kong health || exit 1" ]
