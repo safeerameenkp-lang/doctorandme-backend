@@ -116,6 +116,10 @@ services:
       KONG_NGINX_DAEMON: "off"
     ports:
       - "8000:8000"
+    links:
+      - auth-service
+      - organization-service
+      - appointment-service
     depends_on:
       auth-service:
         condition: service_started
@@ -160,5 +164,8 @@ volumes:
 networks:
   doctorandme-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.100.0/24
     driver_opts:
       com.docker.network.driver.mtu: 1400
