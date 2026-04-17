@@ -118,7 +118,7 @@ services:
       KONG_PLUGINS: bundled
       KONG_NGINX_DAEMON: "off"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     links:
       - auth-service
       - organization-service
