@@ -135,11 +135,6 @@ services:
     volumes:
       - ./kong-gateway-structure/kong.yml:/kong/kong.yml:ro
     restart: unless-stopped
-    healthcheck:
-      test: [ "CMD-SHELL", "kong health || exit 1" ]
-      interval: 10s
-      timeout: 10s
-      retries: 3
 
   # ----------------------
   # PgAdmin
