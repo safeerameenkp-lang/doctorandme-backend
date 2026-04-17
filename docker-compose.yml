@@ -16,7 +16,7 @@ services:
       - ./services/auth-service/migrations:/migrations:ro
     entrypoint: [ "sh", "/migrations/run-migrations.sh" ]
     networks:
-      - clinic_network
+      - doctorandme-network
 
   organization-migrations:
     build:
@@ -28,7 +28,7 @@ services:
       - ./services/organization-service/migrations:/migrations:ro
     entrypoint: [ "sh", "/migrations/run-migrations.sh" ]
     networks:
-      - clinic_network
+      - doctorandme-network
     depends_on:
       auth-migrations:
         condition: service_completed_successfully
@@ -43,7 +43,7 @@ services:
       - ./services/appointment-service/migrations:/migrations:ro
     entrypoint: [ "sh", "/migrations/run-migrations.sh" ]
     networks:
-      - clinic_network
+      - doctorandme-network
     depends_on:
       organization-migrations:
         condition: service_completed_successfully
@@ -55,8 +55,6 @@ services:
     build:
       context: .
       dockerfile: services/auth-service/Dockerfile
-    ports:
-      - "8080:8080"
     env_file:
       - .env
     environment:
@@ -66,7 +64,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      clinic_network:
+      doctorandme-network:
         aliases:
           - auth-service
 
@@ -74,8 +72,6 @@ services:
     build:
       context: .
       dockerfile: services/organization-service/Dockerfile
-    ports:
-      - "8081:8081"
     env_file:
       - .env
     environment:
@@ -87,7 +83,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      clinic_network:
+      doctorandme-network:
         aliases:
           - organization-service
 
@@ -95,8 +91,6 @@ services:
     build:
       context: .
       dockerfile: services/appointment-service/Dockerfile
-    ports:
-      - "8082:8082"
     env_file:
       - .env
     environment:
@@ -106,7 +100,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      clinic_network:
+      doctorandme-network:
         aliases:
           - appointment-service
 
@@ -127,8 +121,9 @@ services:
       KONG_PLUGINS: bundled
       KONG_NGINX_DAEMON: "off"
     ports:
+      - "80:8000"
+      - "443:8443"
       - "8000:8000"
-      - "8001:8001"
     depends_on:
       auth-service:
         condition: service_started
@@ -137,7 +132,7 @@ services:
       appointment-service:
         condition: service_started
     networks:
-      - clinic_network
+      - doctorandme-network
     volumes:
       - ./kong.yml:/kong/kong.yml:ro
     restart: unless-stopped
@@ -161,7 +156,7 @@ services:
     volumes:
       - pgadmin_data:/var/lib/pgadmin
     networks:
-      - clinic_network
+      - doctorandme-network
     restart: unless-stopped
 
 # ----------------------
@@ -171,5 +166,5 @@ volumes:
   pgadmin_data:
 
 networks:
-  clinic_network:
+  doctorandme-network:
     driver: bridge

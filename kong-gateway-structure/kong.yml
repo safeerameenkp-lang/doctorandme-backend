@@ -15,7 +15,7 @@ services:
           - http
           - https
         methods:
-          - GET
+          - GET 
           - POST
           - PUT
           - DELETE
