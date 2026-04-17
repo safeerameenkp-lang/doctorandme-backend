@@ -121,8 +121,6 @@ services:
       KONG_PLUGINS: bundled
       KONG_NGINX_DAEMON: "off"
     ports:
-      - "80:8000"
-      - "443:8443"
       - "8000:8000"
     depends_on:
       auth-service:
