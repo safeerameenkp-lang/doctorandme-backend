@@ -64,9 +64,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      doctorandme-network:
-        aliases:
-          - auth-service
+      - doctorandme-network
 
   organization-service:
     build:
@@ -83,9 +81,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      doctorandme-network:
-        aliases:
-          - organization-service
+      - doctorandme-network
 
   appointment-service:
     build:
@@ -100,9 +96,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      doctorandme-network:
-        aliases:
-          - appointment-service
+      - doctorandme-network
 
   # ----------------------
   # Kong API Gateway Configuration
