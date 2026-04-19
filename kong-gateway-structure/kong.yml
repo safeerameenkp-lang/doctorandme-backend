@@ -2,7 +2,9 @@ _format_version: "3.0"
 _transform: true
 
 services:
-  # Auth Service
+  # ---------------------------------------------------------
+  # 1. Auth Service (Authentication & User Management)
+  # ---------------------------------------------------------
   - name: auth-service
     url: http://auth-service:8080
     routes:
@@ -11,41 +13,18 @@ services:
           - /api/auth
         strip_path: false
         preserve_host: true
-        protocols:
-          - http
-          - https
-        methods:
-          - GET 
-          - POST
-          - PUT
-          - DELETE
-          - PATCH
-          - OPTIONS
     plugins:
       - name: cors
         config:
-          origins:
-            - "*"
-          methods:
-            - GET
-            - POST
-            - PUT
-            - DELETE
-            - PATCH
-            - OPTIONS
-          headers:
-            - Accept
-            - Accept-Language
-            - Content-Language
-            - Content-Type
-            - Authorization
-            - X-Requested-With
-          exposed_headers:
-            - X-Auth-Token
+          origins: ["*"]
+          methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+          headers: ["Accept", "Accept-Language", "Content-Language", "Content-Type", "Authorization", "X-Requested-With"]
+          exposed_headers: ["X-Auth-Token"]
           credentials: true
-          max_age: 3600
 
-  # Organization Service
+  # ---------------------------------------------------------
+  # 2. Organization Service (Clinic & Staff Management)
+  # ---------------------------------------------------------
   - name: organization-service
     url: http://organization-service:8081
     routes:
@@ -54,41 +33,15 @@ services:
           - /api/organizations
         strip_path: false
         preserve_host: true
-        protocols:
-          - http
-          - https
-        methods:
-          - GET
-          - POST
-          - PUT
-          - DELETE
-          - PATCH
-          - OPTIONS
     plugins:
       - name: cors
         config:
-          origins:
-            - "*"
-          methods:
-            - GET
-            - POST
-            - PUT
-            - DELETE
-            - PATCH
-            - OPTIONS
-          headers:
-            - Accept
-            - Accept-Language
-            - Content-Language
-            - Content-Type
-            - Authorization
-            - X-Requested-With
-          exposed_headers:
-            - X-Auth-Token
-          credentials: true
-          max_age: 3600
+          origins: ["*"]
+          methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
 
-  # Appointment Service
+  # ---------------------------------------------------------
+  # 3. Appointment Service (Slots & Bookings)
+  # ---------------------------------------------------------
   - name: appointment-service
     url: http://appointment-service:8082
     routes:
@@ -97,41 +50,15 @@ services:
           - /api/v1
         strip_path: false
         preserve_host: true
-        protocols:
-          - http
-          - https
-        methods:
-          - GET
-          - POST
-          - PUT
-          - DELETE
-          - PATCH
-          - OPTIONS
     plugins:
       - name: cors
         config:
-          origins:
-            - "*"
-          methods:
-            - GET
-            - POST
-            - PUT
-            - DELETE
-            - PATCH
-            - OPTIONS
-          headers:
-            - Accept
-            - Accept-Language
-            - Content-Language
-            - Content-Type
-            - Authorization
-            - X-Requested-With
-          exposed_headers:
-            - X-Auth-Token
-          credentials: true
-          max_age: 3600
+          origins: ["*"]
+          methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
 
-  # Uploads Service (Proxying to Organization Service)
+  # ---------------------------------------------------------
+  # 4. Uploads (File Storage Proxy)
+  # ---------------------------------------------------------
   - name: uploads-service
     url: http://organization-service:8081
     routes:
@@ -140,33 +67,32 @@ services:
           - /uploads
         strip_path: false
         preserve_host: true
-        protocols:
-          - http
-          - https
-        methods:
-          - GET
-          - OPTIONS
-    plugins:
-      - name: cors
-        config:
-          origins:
-            - "*"
-          methods:
-            - GET
-            - OPTIONS
-          headers:
-            - Accept
-            - Accept-Language
-            - Content-Language
-            - Content-Type
-            - Authorization
-            - X-Requested-With
-          exposed_headers:
-            - X-Auth-Token
-          credentials: true
-          max_age: 3600
 
-# Global plugins
+  # ---------------------------------------------------------
+  # 5. System Routes (Health & Landing)
+  # ---------------------------------------------------------
+  - name: system-meta
+    url: http://auth-service:8080/api/auth # Base for meta-checks
+    routes:
+      - name: global-health
+        paths:
+          - /health
+        strip_path: true
+      - name: root-landing
+        paths:
+          - /
+        strip_path: false
+    plugins:
+      # This terminates the request at the root (/) safely
+      - name: request-termination
+        config:
+          status_code: 200
+          message: "DoctorAndMe API Gateway v1.0 - Systems Operational"
+          content_type: application/json
+
+# ---------------------------------------------------------
+# Global Plugins (Observability)
+# ---------------------------------------------------------
 plugins:
   - name: request-id
     config:
