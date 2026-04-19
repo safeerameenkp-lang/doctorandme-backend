@@ -2,15 +2,16 @@ _format_version: "3.0"
 _transform: true
 
 services:
-  # ---------------------------------------------------------
-  # 1. Auth Service (Authentication & User Management)
-  # ---------------------------------------------------------
+  # 1. Auth Service
   - name: auth-service
     url: http://auth-service:8080
     routes:
       - name: auth-routes
         paths:
           - /api/auth
+        hosts:
+          - api.doctorandmeonline.com
+          - localhost
         strip_path: false
         preserve_host: true
         protocols:
@@ -21,19 +22,17 @@ services:
         config:
           origins: ["*"]
           methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
-          headers: ["Accept", "Accept-Language", "Content-Language", "Content-Type", "Authorization", "X-Requested-With"]
-          exposed_headers: ["X-Auth-Token"]
-          credentials: true
 
-  # ---------------------------------------------------------
-  # 2. Organization Service (Clinic & Staff Management)
-  # ---------------------------------------------------------
+  # 2. Organization Service
   - name: organization-service
     url: http://organization-service:8081
     routes:
       - name: organization-routes
         paths:
           - /api/organizations
+        hosts:
+          - api.doctorandmeonline.com
+          - localhost
         strip_path: false
         preserve_host: true
         protocols:
@@ -45,15 +44,16 @@ services:
           origins: ["*"]
           methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
 
-  # ---------------------------------------------------------
-  # 3. Appointment Service (Slots & Bookings)
-  # ---------------------------------------------------------
+  # 3. Appointment Service
   - name: appointment-service
     url: http://appointment-service:8082
     routes:
       - name: appointment-routes
         paths:
           - /api/v1
+        hosts:
+          - api.doctorandmeonline.com
+          - localhost
         strip_path: false
         preserve_host: true
         protocols:
@@ -65,30 +65,32 @@ services:
           origins: ["*"]
           methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
 
-  # ---------------------------------------------------------
-  # 4. Uploads (File Storage Proxy)
-  # ---------------------------------------------------------
+  # 4. Uploads
   - name: uploads-service
     url: http://organization-service:8081
     routes:
       - name: uploads-route
         paths:
           - /uploads
+        hosts:
+          - api.doctorandmeonline.com
+          - localhost
         strip_path: false
         preserve_host: true
         protocols:
           - http
           - https
 
-  # ---------------------------------------------------------
   # 5. System Routes (Health & Landing)
-  # ---------------------------------------------------------
   - name: system-meta
-    url: http://auth-service:8080/api/auth # Base for meta-checks
+    url: http://auth-service:8080/api/auth
     routes:
       - name: global-health
         paths:
           - /health
+        hosts:
+          - api.doctorandmeonline.com
+          - localhost
         strip_path: true
         protocols:
           - http
@@ -96,21 +98,20 @@ services:
       - name: root-landing
         paths:
           - /
+        hosts:
+          - api.doctorandmeonline.com
+          - localhost
         strip_path: false
         protocols:
           - http
           - https
-    plugins:
-      # This terminates the request at the root (/) safely
-      - name: request-termination
-        config:
-          status_code: 200
-          body: '{"message": "DoctorAndMe API Gateway Operational"}'
-          content_type: application/json
+        plugins:
+          - name: request-termination
+            config:
+              status_code: 200
+              body: '{"message": "DoctorAndMe API Gateway Operational"}'
+              content_type: application/json
 
-# ---------------------------------------------------------
-# Global Plugins (Observability)
-# ---------------------------------------------------------
 plugins:
   - name: correlation-id
     config:
