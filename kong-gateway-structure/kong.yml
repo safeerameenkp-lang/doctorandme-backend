@@ -87,7 +87,7 @@ services:
       - name: request-termination
         config:
           status_code: 200
-          message: "DoctorAndMe API Gateway v1.0 - Systems Operational"
+          body: '{"message": "DoctorAndMe API Gateway Operational"}'
           content_type: application/json
 
 # ---------------------------------------------------------
