@@ -58,7 +58,7 @@ services:
 
   # 6. Gateway Landing Page (Internal)
   - name: gateway-root
-    url: http://localhost:8000 # Dummy URL
+    url: http://auth-service:8080
     routes:
       - name: root-landing
         paths:
