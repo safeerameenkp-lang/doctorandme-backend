@@ -115,7 +115,7 @@ services:
       KONG_PROXY_ERROR_LOG: /dev/stderr
       KONG_ADMIN_ERROR_LOG: /dev/stderr
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
-      KONG_PLUGINS: bundled,request-id,correlation-id
+      KONG_PLUGINS: bundled,correlation-id
       KONG_NGINX_DAEMON: "off"
     ports:
       - "8000:8000"
