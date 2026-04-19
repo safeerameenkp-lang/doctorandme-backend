@@ -13,6 +13,9 @@ services:
           - /api/auth
         strip_path: false
         preserve_host: true
+        protocols:
+          - http
+          - https
     plugins:
       - name: cors
         config:
@@ -33,6 +36,9 @@ services:
           - /api/organizations
         strip_path: false
         preserve_host: true
+        protocols:
+          - http
+          - https
     plugins:
       - name: cors
         config:
@@ -50,6 +56,9 @@ services:
           - /api/v1
         strip_path: false
         preserve_host: true
+        protocols:
+          - http
+          - https
     plugins:
       - name: cors
         config:
@@ -67,6 +76,9 @@ services:
           - /uploads
         strip_path: false
         preserve_host: true
+        protocols:
+          - http
+          - https
 
   # ---------------------------------------------------------
   # 5. System Routes (Health & Landing)
@@ -78,10 +90,16 @@ services:
         paths:
           - /health
         strip_path: true
+        protocols:
+          - http
+          - https
       - name: root-landing
         paths:
           - /
         strip_path: false
+        protocols:
+          - http
+          - https
     plugins:
       # This terminates the request at the root (/) safely
       - name: request-termination
