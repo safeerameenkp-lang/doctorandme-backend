@@ -94,10 +94,6 @@ services:
 # Global Plugins (Observability)
 # ---------------------------------------------------------
 plugins:
-  - name: request-id
-    config:
-      header_name: X-Request-ID
-      echo_downstream: true
   - name: correlation-id
     config:
       header_name: X-Correlation-ID
