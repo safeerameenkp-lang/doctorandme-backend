@@ -40,6 +40,13 @@ services:
             - Content-Type
             - Authorization
             - X-Requested-With
+            - Origin
+            - Cache-Control
+            - X-File-Name
+            - X-Forwarded-Proto
+            - Accept-Encoding
+            - Access-Control-Request-Method
+            - Access-Control-Request-Headers
           exposed_headers:
             - X-Auth-Token
           credentials: true
@@ -87,6 +94,13 @@ services:
             - Content-Type
             - Authorization
             - X-Requested-With
+            - Origin
+            - Cache-Control
+            - X-File-Name
+            - X-Forwarded-Proto
+            - Accept-Encoding
+            - Access-Control-Request-Method
+            - Access-Control-Request-Headers
           exposed_headers:
             - X-Auth-Token
           credentials: true
@@ -103,6 +117,22 @@ services:
       - name: organization-routes
         paths:
           - /api/organizations
+          - /api/clinics
+          - /api/doctors
+          - /api/departments
+          - /api/doctor-leaves
+          - /api/doctor-time-slots
+          - /api/doctor-session-slots
+          - /api/clinic-doctor-links
+          - /api/doctor-schedules
+          - /api/doctor-consultation-fees
+          - /api/services
+          - /api/links
+          - /api/patient-clinics
+          - /api/clinic-patients
+          - /api/clinic-specific-patients
+          - /api/patients
+          - /api/admin
         strip_path: false
         preserve_host: true
         protocols:
@@ -134,6 +164,13 @@ services:
             - Content-Type
             - Authorization
             - X-Requested-With
+            - Origin
+            - Cache-Control
+            - X-File-Name
+            - X-Forwarded-Proto
+            - Accept-Encoding
+            - Access-Control-Request-Method
+            - Access-Control-Request-Headers
           exposed_headers:
             - X-Auth-Token
           credentials: true
@@ -173,6 +210,13 @@ services:
             - Content-Type
             - Authorization
             - X-Requested-With
+            - Origin
+            - Cache-Control
+            - X-File-Name
+            - X-Forwarded-Proto
+            - Accept-Encoding
+            - Access-Control-Request-Method
+            - Access-Control-Request-Headers
           exposed_headers:
             - X-Auth-Token
           credentials: true
