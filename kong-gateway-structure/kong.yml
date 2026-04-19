@@ -9,19 +9,8 @@ services:
       - name: auth-routes
         paths:
           - /api/auth
-        hosts:
-          - api.doctorandmeonline.com
-          - localhost
         strip_path: false
         preserve_host: true
-        protocols:
-          - http
-          - https
-    plugins:
-      - name: cors
-        config:
-          origins: ["*"]
-          methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
 
   # 2. Organization Service
   - name: organization-service
@@ -30,19 +19,8 @@ services:
       - name: organization-routes
         paths:
           - /api/organizations
-        hosts:
-          - api.doctorandmeonline.com
-          - localhost
         strip_path: false
         preserve_host: true
-        protocols:
-          - http
-          - https
-    plugins:
-      - name: cors
-        config:
-          origins: ["*"]
-          methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
 
   # 3. Appointment Service
   - name: appointment-service
@@ -51,19 +29,8 @@ services:
       - name: appointment-routes
         paths:
           - /api/v1
-        hosts:
-          - api.doctorandmeonline.com
-          - localhost
         strip_path: false
         preserve_host: true
-        protocols:
-          - http
-          - https
-    plugins:
-      - name: cors
-        config:
-          origins: ["*"]
-          methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
 
   # 4. Uploads
   - name: uploads-service
@@ -72,14 +39,8 @@ services:
       - name: uploads-route
         paths:
           - /uploads
-        hosts:
-          - api.doctorandmeonline.com
-          - localhost
         strip_path: false
         preserve_host: true
-        protocols:
-          - http
-          - https
 
   # 5. System Routes (Health & Landing)
   - name: system-meta
@@ -88,23 +49,11 @@ services:
       - name: global-health
         paths:
           - /health
-        hosts:
-          - api.doctorandmeonline.com
-          - localhost
         strip_path: true
-        protocols:
-          - http
-          - https
       - name: root-landing
         paths:
           - /
-        hosts:
-          - api.doctorandmeonline.com
-          - localhost
         strip_path: false
-        protocols:
-          - http
-          - https
         plugins:
           - name: request-termination
             config:
