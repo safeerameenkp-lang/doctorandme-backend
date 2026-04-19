@@ -11,6 +11,7 @@ services:
           - /api/auth
         strip_path: false
         preserve_host: true
+        protocols: [http, https]
 
   # 2. Organization Service
   - name: organization-service
@@ -21,6 +22,7 @@ services:
           - /api/organizations
         strip_path: false
         preserve_host: true
+        protocols: [http, https]
 
   # 3. Appointment Service
   - name: appointment-service
@@ -31,6 +33,7 @@ services:
           - /api/v1
         strip_path: false
         preserve_host: true
+        protocols: [http, https]
 
   # 4. Uploads
   - name: uploads-service
@@ -41,25 +44,33 @@ services:
           - /uploads
         strip_path: false
         preserve_host: true
+        protocols: [http, https]
 
-  # 5. System Routes (Health & Landing)
-  - name: system-meta
-    url: http://auth-service:8080/api/auth
+  # 5. Global Health Check (Mapped to Auth Service Health)
+  - name: global-health-service
+    url: http://auth-service:8080/api/auth/health
     routes:
-      - name: global-health
+      - name: global-health-route
         paths:
           - /health
         strip_path: true
+        protocols: [http, https]
+
+  # 6. Gateway Landing Page (Internal)
+  - name: gateway-root
+    url: http://localhost:8000 # Dummy URL
+    routes:
       - name: root-landing
         paths:
           - /
         strip_path: false
-        plugins:
-          - name: request-termination
-            config:
-              status_code: 200
-              body: '{"message": "DoctorAndMe API Gateway Operational"}'
-              content_type: application/json
+        protocols: [http, https]
+    plugins:
+      - name: request-termination
+        config:
+          status_code: 200
+          body: '{"message": "DoctorAndMe API Gateway Operational"}'
+          content_type: application/json
 
 plugins:
   - name: correlation-id
