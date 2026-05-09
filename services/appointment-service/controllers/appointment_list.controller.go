@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -15,7 +16,10 @@ import (
 // AppointmentListItem represents the structure for appointment list UI
 type AppointmentListItem struct {
 	ID                  string   `json:"id"`
-	TokenNumber         *string  `json:"token_number"`
+	TokenNumber         int      `json:"token_number"`
+	DisplayToken        string   `json:"display_token"`
+	DoctorPrefix        string   `json:"doctor_prefix"`
+	QueuePosition       int      `json:"queue_position"`
 	MoID                *string  `json:"mo_id"`
 	PatientNumber       *string  `json:"patient_number"`
 	ClinicPatientID     *string  `json:"clinic_patient_id"`
@@ -56,7 +60,7 @@ func GetAppointmentList(c *gin.Context) {
 
 	// Build simplified query for appointment list - Updated to support both Global and Clinic-Specific patients
 	query := `
-        SELECT a.id, a.booking_number, a.token_number, a.appointment_time, a.consultation_type, 
+        SELECT a.id, a.booking_number, a.token_numeric, a.display_token, a.doctor_prefix, a.appointment_time, a.consultation_type, 
                a.status, a.fee_amount, a.payment_status, a.created_at, a.booking_mode,
                COALESCE(p.mo_id, cp.mo_id) as mo_id, 
                COALESCE(u.first_name, cp.first_name, 'Unknown') as patient_first_name, 
@@ -124,8 +128,11 @@ func GetAppointmentList(c *gin.Context) {
 		var patientFirstName, patientLastName, doctorFirstName, doctorLastName string
 		var doctorImage *string
 
+		var tokenNumeric sql.NullInt64
+		var displayToken, doctorPrefix sql.NullString
+
 		err := rows.Scan(
-			&appointment.ID, &appointment.BookingNumber, &appointment.TokenNumber, &appointmentTime, &appointment.ConsultationType,
+			&appointment.ID, &appointment.BookingNumber, &tokenNumeric, &displayToken, &doctorPrefix, &appointmentTime, &appointment.ConsultationType,
 			&appointment.Status, &appointment.FeeAmount, &appointment.PaymentStatus, &createdAt, &appointment.BookingMode,
 			&moID, &patientFirstName, &patientLastName,
 			&doctorFirstName, &doctorLastName, &departmentName, &doctorImage, &appointment.ClinicPatientID,
@@ -134,6 +141,12 @@ func GetAppointmentList(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
+
+		// Set Token Fields
+		appointment.TokenNumber = int(tokenNumeric.Int64)
+		appointment.DisplayToken = displayToken.String
+		appointment.DoctorPrefix = doctorPrefix.String
+		appointment.QueuePosition = int(tokenNumeric.Int64)
 
 		// Set Mo ID
 		if moID != nil {

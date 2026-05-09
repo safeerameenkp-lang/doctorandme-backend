@@ -12,7 +12,11 @@ type Appointment struct {
 	DoctorID         string    `json:"doctor_id" db:"doctor_id"`
 	DepartmentID     *string   `json:"department_id" db:"department_id"`
 	BookingNumber    string    `json:"booking_number" db:"booking_number"`
-	TokenNumber      *string   `json:"token_number" db:"token_number"`
+	TokenNumber      *string   `json:"-" db:"token_number"` // Legacy, hidden from JSON
+	TokenNumeric     *int      `json:"token_number" db:"token_numeric"`
+	DisplayToken     *string   `json:"display_token" db:"display_token"`
+	DoctorPrefix     *string   `json:"doctor_prefix" db:"doctor_prefix"`
+	QueuePosition    int       `json:"queue_position" db:"-"` // Calculated/Alias
 	AppointmentDate  *string   `json:"appointment_date" db:"appointment_date"`
 	AppointmentTime  time.Time `json:"appointment_time" db:"appointment_time"`
 	DurationMinutes  int       `json:"duration_minutes" db:"duration_minutes"`

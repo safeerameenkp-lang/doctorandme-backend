@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"appointment-service/config"
+	"appointment-service/utils"
 	"context"
 	"database/sql"
 	"fmt"
@@ -41,7 +42,9 @@ func GetSimpleAppointmentList(c *gin.Context) {
 	query := `
 		SELECT 
 			a.id,
-			a.token_number,
+			a.token_numeric,
+			a.display_token,
+			a.doctor_prefix,
 			cp.mo_id,
 			cp.phone,
 			a.clinic_patient_id,
@@ -90,9 +93,14 @@ func GetSimpleAppointmentList(c *gin.Context) {
 		var appointmentDate *string
 		var appointmentTime, createdAt time.Time
 
+		var tokenNumeric sql.NullInt64
+		var displayToken, doctorPrefix sql.NullString
+
 		err := rows.Scan(
 			&apt.ID,
-			&apt.TokenNumber,
+			&tokenNumeric,
+			&displayToken,
+			&doctorPrefix,
 			&apt.MoID,
 			&apt.PatientNumber,
 			&apt.ClinicPatientID,
@@ -113,6 +121,11 @@ func GetSimpleAppointmentList(c *gin.Context) {
 			log.Printf("ERROR: GetSimpleAppointmentList failed to scan row: %v", err)
 			continue
 		}
+
+		apt.TokenNumber = int(tokenNumeric.Int64)
+		apt.DisplayToken = displayToken.String
+		apt.DoctorPrefix = doctorPrefix.String
+		apt.QueuePosition = int(tokenNumeric.Int64)
 
 		// Combined formatting logic for better performance
 		if appointmentDate != nil {
@@ -157,7 +170,9 @@ func GetSimpleAppointmentDetails(c *gin.Context) {
 	query := `
 		SELECT 
 			a.id,
-			a.token_number,
+			a.token_numeric,
+			a.display_token,
+			a.doctor_prefix,
 			cp.mo_id,
 			cp.phone,
 			a.clinic_patient_id,
@@ -184,7 +199,8 @@ func GetSimpleAppointmentDetails(c *gin.Context) {
 
 	var (
 		id, patientName, doctorName, status, bookingNumber, paymentStatus                   string
-		tokenNumber                                                                         *string
+		tokenNumeric                                                                        sql.NullInt64
+		displayToken, doctorPrefix                                                          sql.NullString
 		moID, patientNumber, clinicPatientID, department, consultationType, appointmentDate *string
 		appointmentTime, createdAt                                                          time.Time
 		feeAmount                                                                           *float64
@@ -193,7 +209,9 @@ func GetSimpleAppointmentDetails(c *gin.Context) {
 
 	err := config.DB.QueryRowContext(ctx, query, appointmentID).Scan(
 		&id,
-		&tokenNumber,
+		&tokenNumeric,
+		&displayToken,
+		&doctorPrefix,
 		&moID,
 		&patientNumber,
 		&clinicPatientID,
@@ -234,7 +252,10 @@ func GetSimpleAppointmentDetails(c *gin.Context) {
 		"success": true,
 		"appointment": gin.H{
 			"id":                    id,
-			"token_number":          tokenNumber,
+			"token_number":          tokenNumeric.Int64,
+			"display_token":         displayToken.String,
+			"doctor_prefix":         doctorPrefix.String,
+			"queue_position":        tokenNumeric.Int64,
 			"mo_id":                 moID,
 			"patient_number":        patientNumber,
 			"clinic_patient_id":     clinicPatientID,
@@ -289,7 +310,6 @@ func RescheduleAppointmentDetails(c *gin.Context) {
 		existingSlotID                                                                                  sql.NullString
 		existingFeeAmount                                                                               *float64
 		existingBookingNumber, existingConsultationType                                                 string
-		existingTokenNumber                                                                             sql.NullString
 		existingStatus, existingPaymentStatus, existingBookingMode, existingMoID, existingPatientNumber sql.NullString
 		existingCreatedAt                                                                               time.Time
 
@@ -300,10 +320,15 @@ func RescheduleAppointmentDetails(c *gin.Context) {
 		departmentName          sql.NullString
 	)
 
+	var (
+		existingTokenNumeric               sql.NullInt64
+		existingTokenDisp, existingDocPref sql.NullString
+	)
+
 	err := config.DB.QueryRowContext(ctx, `
 		SELECT 
 			a.clinic_id, a.doctor_id, a.clinic_patient_id, a.individual_slot_id,
-			a.fee_amount, a.booking_number, a.consultation_type, a.token_number,
+			a.fee_amount, a.booking_number, a.consultation_type, a.token_numeric, a.display_token, a.doctor_prefix,
 			a.status, a.payment_status, a.booking_mode, cp.mo_id, cp.phone, a.created_at,
 			s.clinic_id, s.slot_start, s.status, s.available_count,
 			COALESCE(cp.first_name || ' ' || cp.last_name, cp.first_name, 'Unknown'),
@@ -318,7 +343,7 @@ func RescheduleAppointmentDetails(c *gin.Context) {
 		WHERE a.id = $1 AND a.status IN ('scheduled', 'confirmed', 'pending')
 	`, appointmentID, input.IndividualSlotID, input.DoctorID, input.DepartmentID).Scan(
 		&existingClinicID, &existingDoctorID, &existingPatientID, &existingSlotID,
-		&existingFeeAmount, &existingBookingNumber, &existingConsultationType, &existingTokenNumber,
+		&existingFeeAmount, &existingBookingNumber, &existingConsultationType, &existingTokenNumeric, &existingTokenDisp, &existingDocPref,
 		&existingStatus, &existingPaymentStatus, &existingBookingMode, &existingMoID, &existingPatientNumber, &existingCreatedAt,
 		&slotClinicID, &slotStart, &slotStatus, &slotAvailableCount,
 		&patientName, &doctorName, &departmentName,
@@ -414,13 +439,29 @@ func RescheduleAppointmentDetails(c *gin.Context) {
 		newConsultationType = *input.ConsultationType
 	}
 
+	// Step 2.1: Regenerate Token if date changed
+	var finalTokenNumeric int
+	var finalDisplayToken, finalDoctorPrefix string
+	
+	if appointmentDate.Format("2006-01-02") != existingCreatedAt.Format("2006-01-02") || input.DoctorID != existingDoctorID {
+		finalTokenNumeric, finalDisplayToken, finalDoctorPrefix, err = utils.GenerateTokenNumber(input.DoctorID, existingClinicID, input.DepartmentID, appointmentDate)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate new token"})
+			return
+		}
+	} else {
+		finalTokenNumeric = int(existingTokenNumeric.Int64)
+		finalDisplayToken = existingTokenDisp.String
+		finalDoctorPrefix = existingDocPref.String
+	}
+
 	_, err = tx.ExecContext(ctx, `
 		UPDATE appointments SET
 			doctor_id = $1, department_id = $2, individual_slot_id = $3, appointment_date = $4, appointment_time = $5,
-			consultation_type = $6, reason = $7, notes = $8, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $9
+			consultation_type = $6, reason = $7, notes = $8, token_numeric = $9, display_token = $10, doctor_prefix = $11, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $12
 	`, input.DoctorID, input.DepartmentID, input.IndividualSlotID, input.AppointmentDate, appointmentTime,
-		newConsultationType, input.Reason, input.Notes, appointmentID)
+		newConsultationType, input.Reason, input.Notes, finalTokenNumeric, finalDisplayToken, finalDoctorPrefix, appointmentID)
 
 	if err != nil {
 		log.Printf("ERROR: RescheduleAppointmentDetails update failed: %v", err)
@@ -463,7 +504,10 @@ func RescheduleAppointmentDetails(c *gin.Context) {
 		"message": "Appointment rescheduled successfully",
 		"appointment": gin.H{
 			"id":                    appointmentID,
-			"token_number":          existingTokenNumber.String,
+			"token_number":          finalTokenNumeric,
+			"display_token":         finalDisplayToken,
+			"doctor_prefix":         finalDoctorPrefix,
+			"queue_position":        finalTokenNumeric,
 			"mo_id":                 existingMoID.String,
 			"patient_number":        existingPatientNumber.String,
 			"clinic_patient_id":     existingPatientID,

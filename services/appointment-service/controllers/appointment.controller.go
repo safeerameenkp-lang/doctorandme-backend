@@ -300,9 +300,14 @@ func CreateAppointment(c *gin.Context) {
 		return
 	}
 
-	tokenNumber, err := utils.GenerateTokenNumber(input.DoctorID, input.ClinicID, input.DepartmentID, appointmentDate)
+	var tokenNumeric int
+	var tokenDisplay string
+	var doctorPrefix string
+	tokenNumeric, tokenDisplay, doctorPrefix, err = utils.GenerateTokenNumber(input.DoctorID, input.ClinicID, input.DepartmentID, appointmentDate)
 	if err != nil {
-		tokenNumber = "T01"
+		tokenNumeric = 1
+		tokenDisplay = "T01"
+		doctorPrefix = "T"
 	}
 
 	// Validate and check slot availability if slot_id is provided
@@ -463,21 +468,21 @@ func CreateAppointment(c *gin.Context) {
 
 	err = tx.QueryRowContext(ctx, `
         INSERT INTO appointments (
-            patient_id, clinic_patient_id, clinic_id, doctor_id, department_id, booking_number, token_number,
+            patient_id, clinic_patient_id, clinic_id, doctor_id, department_id, booking_number, token_numeric, display_token, doctor_prefix,
             appointment_date, appointment_time, duration_minutes, consultation_type, 
             reason, notes, fee_amount, payment_mode, is_priority, slot_id, booking_mode
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-        RETURNING id, patient_id, clinic_id, doctor_id, department_id, booking_number, token_number,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        RETURNING id, patient_id, clinic_id, doctor_id, department_id, booking_number, token_numeric, display_token, doctor_prefix,
                   appointment_date, appointment_time, duration_minutes, consultation_type, 
                   reason, notes, status, fee_amount, payment_status, payment_mode, 
                   is_priority, booking_mode, created_at
-    `, globalPatientID, clinicPatientIDRef, input.ClinicID, input.DoctorID, input.DepartmentID, bookingNumber, tokenNumber,
+    `, globalPatientID, clinicPatientIDRef, input.ClinicID, input.DoctorID, input.DepartmentID, bookingNumber, tokenNumeric, tokenDisplay, doctorPrefix,
 		appointmentDate.Format("2006-01-02"), appointmentTimeOnly, durationMinutes, input.ConsultationType,
 		input.Reason, input.Notes, utils.CalculateAppointmentFee(doctor, input.ConsultationType, patientID),
 		input.PaymentMode, input.IsPriority, input.SlotID, input.BookingMode).Scan(
 		&appointment.ID, &appointment.PatientID, &appointment.ClinicID, &appointment.DoctorID,
-		&appointment.DepartmentID, &appointment.BookingNumber, &appointment.TokenNumber,
+		&appointment.DepartmentID, &appointment.BookingNumber, &appointment.TokenNumeric, &appointment.DisplayToken, &appointment.DoctorPrefix,
 		&appointment.AppointmentDate, &appointment.AppointmentTime, &appointment.DurationMinutes,
 		&appointment.ConsultationType, &appointment.Reason, &appointment.Notes, &appointment.Status,
 		&appointment.FeeAmount, &appointment.PaymentStatus, &appointment.PaymentMode,
@@ -522,7 +527,6 @@ func CreateAppointment(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"id":                    appointment.ID,
-		"token_number":          appointment.TokenNumber,
 		"patient_name":          patientName.String + " (Patient)",
 		"doctor_name":           "Dr. " + docFirst.String + " " + docLast.String,
 		"consultation_type":     formattedConsultationType,
@@ -532,6 +536,11 @@ func CreateAppointment(c *gin.Context) {
 		"fee_amount":            appointment.FeeAmount,
 		"payment_status":        appointment.PaymentStatus,
 		"booking_number":        appointment.BookingNumber,
+		"token_number":         appointment.TokenNumeric,
+		"display_token":        appointment.DisplayToken,
+		"doctor_prefix":        appointment.DoctorPrefix,
+		"appointment_date":     appointment.AppointmentDate,
+		"queue_position":       appointment.TokenNumeric,
 		"booking_mode":          appointment.BookingMode,
 		"created_at":            appointment.CreatedAt,
 	})
@@ -561,7 +570,7 @@ func GetAppointments(c *gin.Context) {
 
 	// Build dynamic query with department information - Updated to support both Global and Clinic-Specific patients
 	query := `
-        SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number,
+        SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number, a.token_numeric, a.display_token, a.doctor_prefix,
                a.appointment_date, a.appointment_time, a.duration_minutes, a.consultation_type, 
                a.reason, a.notes, a.status, a.fee_amount, a.payment_status, a.payment_mode, 
                a.is_priority, a.booking_mode, a.created_at,
@@ -641,6 +650,10 @@ func GetAppointments(c *gin.Context) {
 		FeeStatus           string   `json:"fee_status"`
 		FeeAmount           *float64 `json:"fee_amount"`
 		PaymentStatus       string   `json:"payment_status"`
+		TokenNumber         int      `json:"token_number"`
+		DisplayToken        string   `json:"display_token"`
+		DoctorPrefix        string   `json:"doctor_prefix"`
+		QueuePosition       int      `json:"queue_position"`
 		BookingNumber       string   `json:"booking_number"`
 		BookingMode         string   `json:"booking_mode"`
 		CreatedAt           string   `json:"created_at"`
@@ -652,6 +665,8 @@ func GetAppointments(c *gin.Context) {
 	for rows.Next() {
 		var (
 			appID, patientID, clinicPatientID, clinicID, doctorID, deptID, bookingNumber string
+			tokenNumeric                                                                 sql.NullInt64
+			displayToken, doctorPrefix                                                   sql.NullString
 			appointmentDate                                                              time.Time
 			appointmentTime                                                              time.Time
 			duration_mins                                                                int
@@ -673,6 +688,7 @@ func GetAppointments(c *gin.Context) {
 
 		err := rows.Scan(
 			&appID, &patientID, &clinicPatientID, &clinicID, &doctorID, &deptID, &bookingNumber,
+			&tokenNumeric, &displayToken, &doctorPrefix,
 			&appointmentDate, &appointmentTime, &duration_mins, &consultType,
 			&reason, &notes, &status, &feeAmount, &payStatus, &payMode,
 			&isPriority, &bookingMode, &createdAt,
@@ -698,6 +714,10 @@ func GetAppointments(c *gin.Context) {
 			Status:              status,
 			FeeAmount:           feeAmount,
 			PaymentStatus:       payStatus,
+			TokenNumber:         int(tokenNumeric.Int64),
+			DisplayToken:        displayToken.String,
+			DoctorPrefix:        doctorPrefix.String,
+			QueuePosition:       int(tokenNumeric.Int64),
 			BookingNumber:       bookingNumber,
 			BookingMode:         bookingMode,
 			CreatedAt:           createdAt.Format(time.RFC3339),
@@ -744,7 +764,7 @@ func GetAppointment(c *gin.Context) {
 	var clinicInfo models.ClinicInfo
 
 	err := config.DB.QueryRowContext(ctx, `
-        SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number,
+        SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number, a.token_numeric, a.display_token, a.doctor_prefix,
                a.appointment_date, a.appointment_time, a.duration_minutes, a.consultation_type, 
                a.reason, a.notes, a.status, a.fee_amount, a.payment_status, a.payment_mode, 
                a.is_priority, a.booking_mode, a.created_at,
@@ -770,7 +790,7 @@ func GetAppointment(c *gin.Context) {
         WHERE a.id = $1
     `, appointmentID).Scan(
 		&appointment.ID, &appointment.PatientID, &appointment.ClinicPatientID, &appointment.ClinicID, &appointment.DoctorID,
-		&appointment.DepartmentID, &appointment.BookingNumber, &appointment.AppointmentDate,
+		&appointment.DepartmentID, &appointment.BookingNumber, &appointment.TokenNumeric, &appointment.DisplayToken, &appointment.DoctorPrefix, &appointment.AppointmentDate,
 		&appointment.AppointmentTime, &appointment.DurationMinutes, &appointment.ConsultationType,
 		&appointment.Reason, &appointment.Notes, &appointment.Status, &appointment.FeeAmount,
 		&appointment.PaymentStatus, &appointment.PaymentMode, &appointment.IsPriority,
@@ -821,7 +841,7 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 
 	// Broad query that matches both Global and Clinic-Specific patients
 	query := `
-        SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number,
+        SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number, a.token_numeric, a.display_token, a.doctor_prefix,
                a.appointment_date, a.appointment_time, a.duration_minutes, a.consultation_type, 
                a.reason, a.notes, a.status, a.fee_amount, a.payment_status, a.payment_mode, 
                a.is_priority, a.booking_mode, a.created_at,
@@ -856,6 +876,8 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 	for rows.Next() {
 		var (
 			appID, pID, cpID, clinicID, docID, deptID, bookingNumber string
+			tokenNumeric                                             sql.NullInt64
+			displayToken                                             sql.NullString
 			appDate                                                  time.Time
 			appTime                                                  time.Time
 			durationMins                                             int
@@ -872,6 +894,7 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 
 		err := rows.Scan(
 			&appID, &pID, &cpID, &clinicID, &docID, &deptID, &bookingNumber,
+			&tokenNumeric, &displayToken,
 			&appDate, &appTime, &durationMins, &consultType,
 			&reason, &notes, &status, &feeAmount, &payStatus, &payMode,
 			&isPriority, &bookingMode, &createdAt,
@@ -886,6 +909,8 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 		appointments = append(appointments, gin.H{
 			"id":                    appID,
 			"booking_number":        bookingNumber,
+			"token_number":          int(tokenNumeric.Int64),
+			"display_token":         displayToken.String,
 			"appointment_date_time": appTime.Format("02-01-2006 03:04 PM"),
 			"patient_name":          pFN + " " + pLN,
 			"doctor_name":           "Dr. " + dFN + " " + dLN,
@@ -932,6 +957,37 @@ func UpdateAppointment(c *gin.Context) {
 			middleware.SendValidationError(c, "Invalid appointment time format", "Use YYYY-MM-DD HH:MM:SS")
 			return
 		}
+		newDate := appointmentTime.Format("2006-01-02")
+
+		// Detect if date changed to trigger token regeneration
+		var oldDate string
+		var docID, clinicID string
+		var deptID sql.NullString
+		err = config.DB.QueryRowContext(ctx, "SELECT appointment_date, doctor_id, clinic_id, department_id FROM appointments WHERE id = $1", appointmentID).Scan(&oldDate, &docID, &clinicID, &deptID)
+		
+		if err == nil && oldDate != newDate {
+			// Regenerate token for new date
+			var deptPtr *string
+			if deptID.Valid { deptPtr = &deptID.String }
+			tokenNum, tokenDisp, docPref, _ := utils.GenerateTokenNumber(docID, clinicID, deptPtr, appointmentTime)
+			
+			updates = append(updates, fmt.Sprintf(" appointment_date = $%d", argIndex))
+			args = append(args, newDate)
+			argIndex++
+
+			updates = append(updates, fmt.Sprintf(" token_numeric = $%d", argIndex))
+			args = append(args, tokenNum)
+			argIndex++
+
+			updates = append(updates, fmt.Sprintf(" display_token = $%d", argIndex))
+			args = append(args, tokenDisp)
+			argIndex++
+
+			updates = append(updates, fmt.Sprintf(" doctor_prefix = $%d", argIndex))
+			args = append(args, docPref)
+			argIndex++
+		}
+
 		updates = append(updates, fmt.Sprintf(" appointment_time = $%d", argIndex))
 		args = append(args, appointmentTime)
 		argIndex++
@@ -1047,21 +1103,27 @@ func RescheduleAppointment(c *gin.Context) {
 	}
 
 	// Step 2: Handle Token Regeneration if date changed
-	tokenNumber, _ := utils.GenerateTokenNumber(docID, clinicID, &deptID, newTime)
+	tokenNumeric, tokenDisplay, doctorPrefix, _ := utils.GenerateTokenNumber(docID, clinicID, &deptID, newTime)
 
 	// Step 3: Atomic Update
 	_, err = config.DB.ExecContext(ctx, `
 		UPDATE appointments 
-		SET appointment_time = $1, appointment_date = $2, token_number = $3, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $4
-	`, newTime, newDate, tokenNumber, appointmentID)
+		SET appointment_time = $1, appointment_date = $2, token_numeric = $3, display_token = $4, doctor_prefix = $5, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $6
+	`, newTime, newDate, tokenNumeric, tokenDisplay, doctorPrefix, appointmentID)
 
 	if err != nil {
 		middleware.SendDatabaseError(c, "Reschedule failed")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Appointment rescheduled successfully", "token_number": tokenNumber})
+	c.JSON(http.StatusOK, gin.H{
+		"message":        "Appointment rescheduled successfully",
+		"token_number":   tokenNumeric,
+		"display_token":  tokenDisplay,
+		"doctor_prefix":  doctorPrefix,
+		"queue_position": tokenNumeric,
+	})
 }
 
 func CancelAppointment(c *gin.Context) {
@@ -1348,9 +1410,14 @@ func CreatePatientWithAppointment(c *gin.Context) {
 	feeAmount := utils.CalculateAppointmentFee(doctorObj, input.ConsultationType, patientID)
 
 	bookingNumber, _ := utils.GenerateBookingNumberWithTx(tx, &docCode, clinicCode, appointmentTime)
-	tokenNumber, _ := utils.GenerateTokenNumberWithTx(tx, docID, input.ClinicID, input.DepartmentID, docCode)
-	if tokenNumber == "" {
-		tokenNumber = "T01"
+	tokenNumeric, err := utils.GenerateTokenNumberWithTx(tx, docID, input.ClinicID, input.DepartmentID, appointmentTime)
+	doctorPrefix := utils.GetDoctorTokenPrefix(docID, input.ClinicID)
+	tokenDisplay := fmt.Sprintf("%s%d", doctorPrefix, tokenNumeric)
+
+	if err != nil {
+		tokenNumeric = 1
+		tokenDisplay = "T01"
+		doctorPrefix = "T"
 	}
 
 	// Slot Booking (Atomic Check & Update)
@@ -1395,20 +1462,20 @@ func CreatePatientWithAppointment(c *gin.Context) {
 
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO appointments (
-			patient_id, clinic_id, doctor_id, department_id, booking_number, token_number,
+			patient_id, clinic_id, doctor_id, department_id, booking_number, token_number, token_numeric, display_token, doctor_prefix,
 			appointment_date, appointment_time, duration_minutes, consultation_type, 
 			reason, notes, fee_amount, payment_mode, is_priority, slot_id, individual_slot_id, booking_mode
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-		RETURNING id, patient_id, clinic_id, doctor_id, department_id, booking_number, token_number,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+		RETURNING id, patient_id, clinic_id, doctor_id, department_id, booking_number, token_number, token_numeric, display_token, doctor_prefix,
 				  appointment_date, appointment_time, duration_minutes, consultation_type, 
 				  reason, notes, status, fee_amount, payment_status, payment_mode, 
 				  is_priority, booking_mode, created_at
-	`, patientID, input.ClinicID, docID, input.DepartmentID, bookingNumber, tokenNumber,
+	`, patientID, input.ClinicID, docID, input.DepartmentID, bookingNumber, tokenDisplay, tokenNumeric, tokenDisplay, doctorPrefix,
 		input.AppointmentDate, appointmentTime, durationMinutes, input.ConsultationType,
 		input.Reason, input.Notes, feeAmount, input.PaymentMode, isPriority, input.SlotID, input.IndividualSlotID, bookingMode).Scan(
 		&appointment.ID, &appointment.PatientID, &appointment.ClinicID, &appointment.DoctorID,
-		&appointment.DepartmentID, &appointment.BookingNumber, &appointment.TokenNumber,
+		&appointment.DepartmentID, &appointment.BookingNumber, &appointment.TokenNumber, &appointment.TokenNumeric, &appointment.DisplayToken, &appointment.DoctorPrefix,
 		&appointment.AppointmentDate, &appointment.AppointmentTime, &appointment.DurationMinutes,
 		&appointment.ConsultationType, &appointment.Reason, &appointment.Notes, &appointment.Status,
 		&appointment.FeeAmount, &appointment.PaymentStatus, &appointment.PaymentMode,
@@ -1445,6 +1512,10 @@ func CreatePatientWithAppointment(c *gin.Context) {
 	if err = tx.Commit(); err != nil {
 		middleware.SendDatabaseError(c, "Failed to commit complex appointment creation")
 		return
+	}
+
+	if appointment.TokenNumeric != nil {
+		appointment.QueuePosition = *appointment.TokenNumeric
 	}
 
 	// 7. Success Response

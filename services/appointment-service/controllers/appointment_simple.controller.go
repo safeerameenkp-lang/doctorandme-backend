@@ -222,7 +222,12 @@ func CreateSimpleAppointment(c *gin.Context) {
 
 	// Generate identifiers within tx
 	bookingNumber, _ := utils.GenerateBookingNumberWithTx(tx, &doctorCode.String, clinicCode.String, appointmentTime)
-	tokenNumber, _ := utils.GenerateTokenNumberWithTx(tx, doctorID.String, input.ClinicID, input.DepartmentID, doctorCode.String)
+	tokenNumeric, tokenDisplay, doctorPrefix, err := utils.GenerateTokenNumber(doctorID.String, input.ClinicID, input.DepartmentID, appointmentTime)
+	if err != nil {
+		tokenNumeric = 1
+		tokenDisplay = "T1"
+		doctorPrefix = "T"
+	}
 
 	paymentStatus := "pending"
 	var paymentMode *string
@@ -243,18 +248,18 @@ func CreateSimpleAppointment(c *gin.Context) {
 	var appointment models.Appointment
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO appointments (
-			clinic_patient_id, clinic_id, doctor_id, department_id, booking_number, token_number,
+			clinic_patient_id, clinic_id, doctor_id, department_id, booking_number, token_numeric, display_token, doctor_prefix,
 			appointment_date, appointment_time, duration_minutes, consultation_type,
 			reason, notes, fee_amount, payment_mode, payment_status, status, individual_slot_id, booking_mode
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 5, $9, $10, $11, $12, $13, $14, 'confirmed', $15, $16)
-		RETURNING id, clinic_patient_id, clinic_id, doctor_id, booking_number, token_number,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 5, $11, $12, $13, $14, $15, 'confirmed', $16, $17)
+		RETURNING id, clinic_patient_id, clinic_id, doctor_id, booking_number, token_numeric, display_token, doctor_prefix,
 		          appointment_date, appointment_time, duration_minutes, consultation_type,
 		          reason, notes, status, fee_amount, payment_status, payment_mode, booking_mode, created_at
-	`, input.ClinicPatientID, input.ClinicID, input.DoctorID, input.DepartmentID, bookingNumber, tokenNumber,
+	`, input.ClinicPatientID, input.ClinicID, input.DoctorID, input.DepartmentID, bookingNumber, tokenNumeric, tokenDisplay, doctorPrefix,
 		appointmentDate.Format("2006-01-02"), appointmentTime, input.ConsultationType,
 		input.Reason, input.Notes, feeAmount, paymentMode, paymentStatus, input.IndividualSlotID, bookingMode).Scan(
 		&appointment.ID, &appointment.ClinicPatientID, &appointment.ClinicID, &appointment.DoctorID,
-		&appointment.BookingNumber, &appointment.TokenNumber, &appointment.AppointmentDate,
+		&appointment.BookingNumber, &appointment.TokenNumeric, &appointment.DisplayToken, &appointment.DoctorPrefix, &appointment.AppointmentDate,
 		&appointment.AppointmentTime, &appointment.DurationMinutes, &appointment.ConsultationType,
 		&appointment.Reason, &appointment.Notes, &appointment.Status, &appointment.FeeAmount,
 		&appointment.PaymentStatus, &appointment.PaymentMode, &appointment.BookingMode, &appointment.CreatedAt,
@@ -372,12 +377,11 @@ func RescheduleSimpleAppointment(c *gin.Context) {
 	}
 
 	// Step 1: Consolidated Pre-fetch Query
-	// Fetches existing appointment, patient clinic validation, and new slot status in ONE optimized query.
 	var (
 		existing                                                                         models.Appointment
 		existingClinicPatientID, existingConsultationType                                string
 		existingFeeAmount                                                                *float64
-		existingPaymentStatus, existingPaymentMode, existingToken, existingBookingNumber sql.NullString
+		existingPaymentStatus, existingPaymentMode, existingBookingNumber sql.NullString
 
 		clinicPatientClinicID sql.NullString
 
@@ -389,7 +393,7 @@ func RescheduleSimpleAppointment(c *gin.Context) {
 		SELECT 
 			a.id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, 
 			a.consultation_type, a.fee_amount, a.payment_status, a.payment_mode,
-			a.appointment_date, a.appointment_time, a.individual_slot_id, a.token_number, a.booking_number,
+			a.appointment_date, a.appointment_time, a.individual_slot_id, a.token_numeric, a.display_token, a.doctor_prefix, a.booking_number,
 			cp.clinic_id as patient_clinic_id,
 			s.clinic_id as slot_clinic_id, s.slot_start, s.status, s.max_patients, s.available_count
 		FROM appointments a
@@ -399,7 +403,7 @@ func RescheduleSimpleAppointment(c *gin.Context) {
 	`, appointmentID, *input.IndividualSlotID).Scan(
 		&existing.ID, &existingClinicPatientID, &existing.ClinicID, &existing.DoctorID, &existing.DepartmentID,
 		&existingConsultationType, &existingFeeAmount, &existingPaymentStatus, &existingPaymentMode,
-		&existing.AppointmentDate, &existing.AppointmentTime, &existing.IndividualSlotID, &existingToken, &existingBookingNumber,
+		&existing.AppointmentDate, &existing.AppointmentTime, &existing.IndividualSlotID, &existing.TokenNumeric, &existing.DisplayToken, &existing.DoctorPrefix, &existingBookingNumber,
 		&clinicPatientClinicID,
 		&slotClinicID, &slotStart, &slotStatus, &slotMaxPatients, &slotAvailableCount,
 	)
@@ -414,9 +418,6 @@ func RescheduleSimpleAppointment(c *gin.Context) {
 		return
 	}
 	existing.BookingNumber = existingBookingNumber.String
-	if existingToken.Valid {
-		existing.TokenNumber = &existingToken.String
-	}
 
 	// Step 2: In-memory Validations
 	if !clinicPatientClinicID.Valid || clinicPatientClinicID.String != input.ClinicID {
@@ -437,23 +438,11 @@ func RescheduleSimpleAppointment(c *gin.Context) {
 		return
 	}
 
-	// Date & Time parsing using package-cached location
-	appointmentDate, err := time.ParseInLocation("2006-01-02", input.AppointmentDate, locIST)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Use YYYY-MM-DD"})
-		return
-	}
+	// Time parsing using package-cached location
 
-	appointmentTime, err := time.ParseInLocation("2006-01-02 15:04:05", input.AppointmentTime, locIST)
+	appointmentTime, err := time.Parse("2006-01-02 15:04:05", input.AppointmentTime)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid time format. Use YYYY-MM-DD HH:MM:SS"})
-		return
-	}
-
-	now := time.Now().In(locIST)
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, locIST)
-	if appointmentDate.Before(today) || (appointmentDate.Equal(today) && appointmentTime.Before(now)) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot reschedule to past date or time"})
 		return
 	}
 
@@ -502,8 +491,10 @@ func RescheduleSimpleAppointment(c *gin.Context) {
 	defer tx.Rollback()
 
 	// Handle sequence generation inside transaction if doctor/date changed
-	var bookingNumber, tokenNumber string
-	if input.DoctorID != existing.DoctorID || input.AppointmentDate != *existing.AppointmentDate {
+	var bookingNumber string
+	var tokenNumeric int
+	var tokenDisplay, doctorPrefix string
+	if input.DoctorID != existing.DoctorID || (existing.AppointmentDate != nil && input.AppointmentDate != *existing.AppointmentDate) {
 		// New clinic code fetch if not already done
 		if clinicCode == "" {
 			err = tx.QueryRowContext(ctx, "SELECT clinic_code FROM clinics WHERE id = $1", input.ClinicID).Scan(&clinicCode)
@@ -520,16 +511,19 @@ func RescheduleSimpleAppointment(c *gin.Context) {
 			bookingNumber = "BN" + time.Now().Format("20060102150405")
 		}
 
-		tokenNumber, err = utils.GenerateTokenNumberWithTx(tx, input.DoctorID, input.ClinicID, input.DepartmentID, *newDoctor.DoctorCode)
+		tokenNumeric, tokenDisplay, doctorPrefix, err = utils.GenerateTokenNumber(input.DoctorID, input.ClinicID, input.DepartmentID, appointmentTime)
 		if err != nil {
-			tokenNumber = "T01"
+			tokenNumeric = 1
+			tokenDisplay = "T1"
+			doctorPrefix = "T"
 		}
 	} else {
 		bookingNumber = existing.BookingNumber
-		if existing.TokenNumber != nil {
-			tokenNumber = *existing.TokenNumber
-		} else {
-			tokenNumber = "T01"
+		if existing.TokenNumeric != nil {
+			tokenNumeric = *existing.TokenNumeric
+		}
+		if existing.DisplayToken != nil {
+			tokenDisplay = *existing.DisplayToken
 		}
 	}
 
@@ -554,10 +548,10 @@ func RescheduleSimpleAppointment(c *gin.Context) {
 	_, err = tx.ExecContext(ctx, `
 		UPDATE appointments SET
 			doctor_id = $1, department_id = $2, individual_slot_id = $3, appointment_date = $4, appointment_time = $5,
-			booking_number = $6, token_number = $7, fee_amount = $8, reason = $9, notes = $10, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $11
+			booking_number = $6, token_numeric = $7, display_token = $8, doctor_prefix = $9, fee_amount = $10, reason = $11, notes = $12, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $13
 	`, input.DoctorID, input.DepartmentID, input.IndividualSlotID, input.AppointmentDate, appointmentTime,
-		bookingNumber, tokenNumber, newFeeAmount, input.Reason, input.Notes, appointmentID)
+		bookingNumber, tokenNumeric, tokenDisplay, doctorPrefix, newFeeAmount, input.Reason, input.Notes, appointmentID)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update appointment record"})
@@ -588,15 +582,15 @@ func RescheduleSimpleAppointment(c *gin.Context) {
 	// Final Response - Minimal Fetch
 	var updated models.Appointment
 	config.DB.QueryRowContext(ctx, `
-		SELECT id, clinic_patient_id, clinic_id, doctor_id, department_id, booking_number, token_number,
+		SELECT id, clinic_patient_id, clinic_id, doctor_id, department_id, booking_number, token_numeric, display_token, doctor_prefix,
 		       appointment_date, appointment_time, duration_minutes, consultation_type,
 		       reason, notes, status, fee_amount, payment_status, payment_mode, created_at
 		FROM appointments WHERE id = $1
 	`, appointmentID).Scan(
 		&updated.ID, &updated.ClinicPatientID, &updated.ClinicID, &updated.DoctorID, &updated.DepartmentID,
-		&updated.BookingNumber, &updated.TokenNumber, &updated.AppointmentDate, &updated.AppointmentTime,
-		&updated.DurationMinutes, &updated.ConsultationType, &updated.Reason, &updated.Notes, &updated.Status,
-		&updated.FeeAmount, &updated.PaymentStatus, &updated.PaymentMode, &updated.CreatedAt,
+		&updated.BookingNumber, &updated.TokenNumeric, &updated.DisplayToken, &updated.DoctorPrefix,
+		&updated.AppointmentDate, &updated.AppointmentTime, &updated.DurationMinutes, &updated.ConsultationType,
+		&updated.Reason, &updated.Notes, &updated.Status, &updated.FeeAmount, &updated.PaymentStatus, &updated.PaymentMode, &updated.CreatedAt,
 	)
 
 	response := gin.H{

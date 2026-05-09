@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 )
@@ -179,40 +178,35 @@ func GenerateTimeSlots(targetDate time.Time, startTime, endTime time.Time, slotD
 	return slots
 }
 
-// GenerateTokenNumber generates and returns the next token number for a doctor on a specific date at a specific clinic
-// Token numbers are unique per doctor, per clinic, per department, per day
-// Tokens reset to 1 at the start of each new day
-// Returns a formatted string like 'RA-01'
-func GenerateTokenNumber(doctorID, clinicID string, departmentID *string, appointmentDate time.Time) (string, error) {
-	// 1. Get/Generate doctor code for identifier
-	doctorCode, err := GetOrGenerateDoctorCode(doctorID)
-	if err != nil {
-		log.Printf("⚠️ GenerateTokenNumber: failed to get doctor code: %v. Using DR.", err)
-		doctorCode = "DR"
-	}
-
+// GenerateTokenNumber generates and returns the next token number for a doctor on a specific date
+// Returns: numeric token, display string (M1), prefix (M), error
+func GenerateTokenNumber(doctorID, clinicID string, departmentID *string, appointmentDate time.Time) (int, string, string, error) {
 	tx, err := config.DB.Begin()
 	if err != nil {
-		return "", fmt.Errorf("failed to start transaction: %v", err)
+		return 0, "", "", fmt.Errorf("failed to start transaction: %v", err)
 	}
 	defer tx.Rollback()
 
-	token, err := GenerateTokenNumberWithTx(tx, doctorID, clinicID, departmentID, doctorCode)
+	serialNumber, err := GenerateTokenNumberWithTx(tx, doctorID, clinicID, departmentID, appointmentDate)
 	if err != nil {
-		return "", err
+		return 0, "", "", err
 	}
 
 	if err = tx.Commit(); err != nil {
-		return "", err
+		return 0, "", "", err
 	}
 
-	return token, nil
+	// Get Prefix based on name
+	prefix := GetDoctorTokenPrefix(doctorID, clinicID)
+	formattedToken := fmt.Sprintf("%s%d", prefix, serialNumber)
+
+	return serialNumber, formattedToken, prefix, nil
 }
 
 // GenerateTokenNumberWithTx generates the next token number using an existing transaction
-func GenerateTokenNumberWithTx(tx *sql.Tx, doctorID, clinicID string, departmentID *string, doctorCode string) (string, error) {
-	// GLOBAL TOKENS: We use a fixed date to keep the sequence increasing indefinitely
-	dateStr := "0001-01-01"
+func GenerateTokenNumberWithTx(tx *sql.Tx, doctorID, clinicID string, departmentID *string, appointmentDate time.Time) (int, error) {
+	// Daily Tokens: We use the appointment date to ensure sequences reset daily
+	dateStr := appointmentDate.Format("2006-01-02")
 
 	// Handle department_id for unique sequence
 	dummyUUID := "00000000-0000-0000-0000-000000000000"
@@ -246,11 +240,11 @@ func GenerateTokenNumberWithTx(tx *sql.Tx, doctorID, clinicID string, department
             `, doctorID, clinicID, deptIDInput, dateStr)
 
 			if err != nil {
-				return "", fmt.Errorf("failed to create token record: %v", err)
+				return 0, fmt.Errorf("failed to create token record: %v", err)
 			}
 			serialNumber = 1
 		} else {
-			return "", fmt.Errorf("failed to query token: %v", err)
+			return 0, fmt.Errorf("failed to query token: %v", err)
 		}
 	} else {
 		// Record exists, increment it
@@ -265,13 +259,44 @@ func GenerateTokenNumberWithTx(tx *sql.Tx, doctorID, clinicID string, department
         `, serialNumber, clinicID, doctorID, deptIDStr, dateStr)
 
 		if err != nil {
-			return "", fmt.Errorf("failed to update token: %v", err)
+			return 0, fmt.Errorf("failed to update token: %v", err)
 		}
 	}
 
-	// Format final token (e.g. RA-01)
-	formattedToken := fmt.Sprintf("%s-%02d", doctorCode, serialNumber)
-	return formattedToken, nil
+	return serialNumber, nil
+}
+
+// GetDoctorTokenPrefix generates a prefix based on the doctor's name
+func GetDoctorTokenPrefix(doctorID, clinicID string) string {
+	var firstName string
+	err := config.DB.QueryRow(`
+		SELECT u.first_name 
+		FROM doctors d 
+		JOIN users u ON d.user_id = u.id 
+		WHERE d.id = $1
+	`, doctorID).Scan(&firstName)
+
+	if err != nil || firstName == "" {
+		return "D"
+	}
+
+	firstName = strings.TrimSpace(strings.ToUpper(firstName))
+	firstChar := string(firstName[0])
+
+	// Check if other doctors in the same clinic have the same first letter
+	var count int
+	_ = config.DB.QueryRow(`
+		SELECT COUNT(*) 
+		FROM doctors d 
+		JOIN users u ON d.user_id = u.id 
+		WHERE d.clinic_id = $1 AND u.first_name ILIKE $2 AND d.id != $3 AND d.is_active = true
+	`, clinicID, firstChar+"%", doctorID).Scan(&count)
+
+	if count > 0 && len(firstName) >= 2 {
+		return firstName[0:2]
+	}
+
+	return firstChar
 }
 
 // GetOrGenerateDoctorCode ensures a doctor has a name-based short code
