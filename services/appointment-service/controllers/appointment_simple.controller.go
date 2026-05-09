@@ -251,7 +251,7 @@ func CreateSimpleAppointment(c *gin.Context) {
 			clinic_patient_id, clinic_id, doctor_id, department_id, booking_number, token_numeric, display_token, doctor_prefix,
 			appointment_date, appointment_time, duration_minutes, consultation_type,
 			reason, notes, fee_amount, payment_mode, payment_status, status, individual_slot_id, booking_mode
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 5, $11, $12, $13, $14, $15, 'confirmed', $16, $17)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 5, $11, $12, $13, $14, $15, $16, 'confirmed', $17, $18)
 		RETURNING id, clinic_patient_id, clinic_id, doctor_id, booking_number, token_numeric, display_token, doctor_prefix,
 		          appointment_date, appointment_time, duration_minutes, consultation_type,
 		          reason, notes, status, fee_amount, payment_status, payment_mode, booking_mode, created_at
