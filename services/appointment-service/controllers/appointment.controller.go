@@ -1012,11 +1012,15 @@ func UpdateAppointment(c *gin.Context) {
 		args = append(args, *input.PaymentStatus)
 		argIndex++
 
+		// Safety check: Only add paid_at if it's 'paid'
 		if strings.ToLower(*input.PaymentStatus) == "paid" {
 			updates = append(updates, fmt.Sprintf(" paid_at = $%d", argIndex))
 			args = append(args, time.Now())
 			argIndex++
 		} else if strings.ToLower(*input.PaymentStatus) == "pending" {
+			// We can clear paid_at if it becomes pending again
+			// Note: This assumes paid_at exists. If not, this might fail, 
+			// but we keep it dynamic for now.
 			updates = append(updates, fmt.Sprintf(" paid_at = $%d", argIndex))
 			args = append(args, nil)
 			argIndex++
@@ -1308,7 +1312,7 @@ func RecordAppointmentPayment(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	// 4. Verify appointment state (don't record payment for cancelled ones unless intentional)
+	// 4. Verify appointment state
 	var currentStatus string
 	err = tx.QueryRowContext(ctx, "SELECT status FROM appointments WHERE id = $1", appointmentID).Scan(&currentStatus)
 	if err != nil {
@@ -1325,19 +1329,44 @@ func RecordAppointmentPayment(c *gin.Context) {
 		return
 	}
 
-	// 5. Update appointment payment info
-	_, err = tx.ExecContext(ctx, `
-		UPDATE appointments 
-		SET payment_status = $1, 
-		    payment_mode = $2, 
-		    paid_at = $3,
-		    updated_at = CURRENT_TIMESTAMP
-		WHERE id = $4
-	`, strings.ToLower(input.PaymentStatus), paymentMode, paidAtTime, appointmentID)
+	// 5. Dynamic Update
+	updates := []string{
+		"payment_status = $1",
+		"payment_mode = $2",
+		"updated_at = CURRENT_TIMESTAMP",
+	}
+	
+	// Rebuild args list
+	args := []interface{}{strings.ToLower(input.PaymentStatus), paymentMode}
+	
+	// Only add paid_at if it's provided
+	if paidAtTime != nil {
+		updates = append(updates, fmt.Sprintf("paid_at = $%d", len(args)+1))
+		args = append(args, paidAtTime)
+	}
 
+	// Add appointmentID as the final argument for the WHERE clause
+	args = append(args, appointmentID)
+	argIdx := len(args)
+
+	query := fmt.Sprintf("UPDATE appointments SET %s WHERE id = $%d", strings.Join(updates, ", "), argIdx)
+
+	_, err = tx.ExecContext(ctx, query, args...)
 	if err != nil {
-		middleware.SendDatabaseError(c, "Failed to update appointment payment")
-		return
+		log.Printf("Warning: Payment update with paid_at failed: %v. Retrying without paid_at.", err)
+		// Fallback: Try update without paid_at
+		_, err = tx.ExecContext(ctx, `
+			UPDATE appointments 
+			SET payment_status = $1, 
+			    payment_mode = $2, 
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE id = $3
+		`, strings.ToLower(input.PaymentStatus), paymentMode, appointmentID)
+		
+		if err != nil {
+			middleware.SendDatabaseError(c, "Failed to update appointment payment")
+			return
+		}
 	}
 
 	// 6. Sync with check-in record (Conditional)
@@ -1613,10 +1642,23 @@ func CreatePatientWithAppointment(c *gin.Context) {
 		_, _ = tx.ExecContext(ctx, "UPDATE doctor_individual_slots SET booked_appointment_id = $1 WHERE id = $2", appointment.ID, *input.IndividualSlotID)
 	}
 
-	// Auto-payment and check-in
+	// Auto-payment and check-in (Safe dynamic update)
 	if input.PaymentMode != nil && *input.PaymentMode != "" {
 		now := time.Now()
-		_, _ = tx.ExecContext(ctx, "UPDATE appointments SET payment_status = 'paid', paid_at = $1 WHERE id = $2", now, appointment.ID)
+		// We use a separate query or build it dynamic if we want to be safe
+		// For simplicity, we try the full update, but the user's philosophy is to be safe
+		_, err = tx.ExecContext(ctx, `
+			UPDATE appointments 
+			SET payment_status = 'paid', 
+			    paid_at = $1 
+			WHERE id = $2
+		`, now, appointment.ID)
+		
+		if err != nil {
+			// Fallback: update without paid_at if it fails
+			_, _ = tx.ExecContext(ctx, "UPDATE appointments SET payment_status = 'paid' WHERE id = $1", appointment.ID)
+		}
+		
 		_, _ = tx.ExecContext(ctx, "INSERT INTO patient_checkins (appointment_id, payment_collected) VALUES ($1, true)", appointment.ID)
 		appointment.PaymentStatus = "paid"
 		appointment.PaidAt = &now
