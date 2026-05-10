@@ -839,10 +839,19 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "50")
 	limit, _ := strconv.Atoi(limitStr)
 
-	// Broad query that matches both Global and Clinic-Specific patients
-	query := `
+	// 1. Schema Check (Pre-flight)
+	var hasPaidAt bool
+	_ = config.DB.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='paid_at' AND table_schema='public')").Scan(&hasPaidAt)
+
+	// 2. Build Dynamic Query
+	paidAtCol := "NULL as paid_at"
+	if hasPaidAt {
+		paidAtCol = "a.paid_at"
+	}
+
+	query := fmt.Sprintf(`
         SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number, a.token_numeric, a.display_token, a.doctor_prefix,
-               a.appointment_date, a.appointment_time, a.paid_at, a.duration_minutes, a.consultation_type, 
+               a.appointment_date, a.appointment_time, %s, a.duration_minutes, a.consultation_type, 
                a.reason, a.notes, a.status, a.fee_amount, a.payment_status, a.payment_mode, 
                a.is_priority, a.booking_mode, a.created_at,
                COALESCE(u.first_name, cp.first_name, 'Unknown') as first_name, 
@@ -861,7 +870,7 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
         LEFT JOIN departments dept ON dept.id = a.department_id
         WHERE (a.patient_id = $1 OR a.clinic_patient_id = $1)
         ORDER BY a.appointment_time DESC LIMIT $2
-    `
+    `, paidAtCol)
 
 	rows, err := config.DB.QueryContext(ctx, query, patientID, limit)
 	if err != nil {
@@ -909,11 +918,14 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 
 		appointments = append(appointments, gin.H{
 			"id":                    appID,
+			"clinic_id":             clinicID,
+			"clinic_patient_id":     cpID,
 			"booking_number":        bookingNumber,
 			"token_number":          int(tokenNumeric.Int64),
 			"display_token":         displayToken.String,
 			"doctor_prefix":         doctorPrefix.String,
-			"appointment_date_time": appTime.Format("02-01-2006 03:04 PM"),
+			"appointment_date":      appDate.Format("02-01-2006"),
+			"appointment_time":      appTime.Format("03:04 PM"),
 			"patient_name":          pFN + " " + pLN,
 			"doctor_name":           "Dr. " + dFN + " " + dLN,
 			"clinic_name":           clinicName,
@@ -930,10 +942,10 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":      true,
-		"patient_id":   patientID,
-		"total_count":  len(appointments),
-		"appointments": appointments,
+		"success":           true,
+		"clinic_patient_id": patientID,
+		"total":             len(appointments),
+		"appointments":      appointments,
 	})
 }
 
