@@ -1011,6 +1011,16 @@ func UpdateAppointment(c *gin.Context) {
 		updates = append(updates, fmt.Sprintf(" payment_status = $%d", argIndex))
 		args = append(args, *input.PaymentStatus)
 		argIndex++
+
+		if strings.ToLower(*input.PaymentStatus) == "paid" {
+			updates = append(updates, fmt.Sprintf(" paid_at = $%d", argIndex))
+			args = append(args, time.Now())
+			argIndex++
+		} else if strings.ToLower(*input.PaymentStatus) == "pending" {
+			updates = append(updates, fmt.Sprintf(" paid_at = $%d", argIndex))
+			args = append(args, nil)
+			argIndex++
+		}
 	}
 	if input.PaymentMode != nil {
 		updates = append(updates, fmt.Sprintf(" payment_mode = $%d", argIndex))
@@ -1259,8 +1269,37 @@ func RecordAppointmentPayment(c *gin.Context) {
 		return
 	}
 
-	// Use payment_type as the mode (cash, card, upi)
+	// 1. Validation
+	validStatuses := map[string]bool{"paid": true, "pending": true, "waived": true}
+	if !validStatuses[strings.ToLower(input.PaymentStatus)] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payment status", "valid_values": "paid, pending, waived"})
+		return
+	}
+
+	// 2. Parse PaidAt or use current time
+	var paidAtTime *time.Time
+	if input.PaidAt != "" {
+		// Try multiple formats
+		formats := []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"}
+		for _, f := range formats {
+			if t, err := time.Parse(f, input.PaidAt); err == nil {
+				paidAtTime = &t
+				break
+			}
+		}
+	}
+	
+	// If status is 'paid' and no time provided, use current
+	if strings.ToLower(input.PaymentStatus) == "paid" && paidAtTime == nil {
+		now := time.Now()
+		paidAtTime = &now
+	}
+
+	// 3. Form descriptive payment mode
 	paymentMode := input.PaymentType
+	if input.PaymentMethod != "" && input.PaymentMethod != input.PaymentType {
+		paymentMode = fmt.Sprintf("%s (%s)", input.PaymentType, input.PaymentMethod)
+	}
 
 	tx, err := config.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -1269,32 +1308,45 @@ func RecordAppointmentPayment(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	// 1. Update appointment payment info
-	result, err := tx.ExecContext(ctx, `
+	// 4. Verify appointment state (don't record payment for cancelled ones unless intentional)
+	var currentStatus string
+	err = tx.QueryRowContext(ctx, "SELECT status FROM appointments WHERE id = $1", appointmentID).Scan(&currentStatus)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			middleware.SendNotFoundError(c, "Appointment")
+		} else {
+			middleware.SendDatabaseError(c, "Failed to fetch appointment status")
+		}
+		return
+	}
+
+	if currentStatus == "cancelled" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot record payment for a cancelled appointment"})
+		return
+	}
+
+	// 5. Update appointment payment info
+	_, err = tx.ExecContext(ctx, `
 		UPDATE appointments 
 		SET payment_status = $1, 
 		    payment_mode = $2, 
+		    paid_at = $3,
 		    updated_at = CURRENT_TIMESTAMP
-		WHERE id = $3
-	`, input.PaymentStatus, paymentMode, appointmentID)
+		WHERE id = $4
+	`, strings.ToLower(input.PaymentStatus), paymentMode, paidAtTime, appointmentID)
 
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to update appointment payment")
 		return
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		middleware.SendNotFoundError(c, "Appointment")
-		return
-	}
-
-	// 2. Optionally update check-in record if it exists
+	// 6. Sync with check-in record (Conditional)
+	isPaid := strings.ToLower(input.PaymentStatus) == "paid" || strings.ToLower(input.PaymentStatus) == "waived"
 	_, _ = tx.ExecContext(ctx, `
 		UPDATE patient_checkins 
-		SET payment_collected = true 
-		WHERE appointment_id = $1
-	`, appointmentID)
+		SET payment_collected = $1 
+		WHERE appointment_id = $2
+	`, isPaid, appointmentID)
 
 	if err = tx.Commit(); err != nil {
 		middleware.SendDatabaseError(c, "Failed to commit payment record")
@@ -1302,10 +1354,12 @@ func RecordAppointmentPayment(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Payment recorded successfully",
+		"success":        true,
+		"message":        "Payment recorded successfully",
 		"appointment_id": appointmentID,
 		"payment_status": input.PaymentStatus,
-		"payment_mode": paymentMode,
+		"payment_mode":   paymentMode,
+		"paid_at":        paidAtTime,
 	})
 }
 
@@ -1561,9 +1615,11 @@ func CreatePatientWithAppointment(c *gin.Context) {
 
 	// Auto-payment and check-in
 	if input.PaymentMode != nil && *input.PaymentMode != "" {
-		_, _ = tx.ExecContext(ctx, "UPDATE appointments SET payment_status = 'paid' WHERE id = $1", appointment.ID)
+		now := time.Now()
+		_, _ = tx.ExecContext(ctx, "UPDATE appointments SET payment_status = 'paid', paid_at = $1 WHERE id = $2", now, appointment.ID)
 		_, _ = tx.ExecContext(ctx, "INSERT INTO patient_checkins (appointment_id, payment_collected) VALUES ($1, true)", appointment.ID)
 		appointment.PaymentStatus = "paid"
+		appointment.PaidAt = &now
 	}
 
 	// Follow-up Creation (Atomic check)
