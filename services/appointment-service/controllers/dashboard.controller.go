@@ -169,6 +169,31 @@ func GetDashboardStats(c *gin.Context) {
 		}
 	}
 
+	// Patients Activity (New vs Returning)
+	var newPatients, returningPatients int
+	
+	// New Patients: Patients whose first ever appointment is today
+	config.DB.QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT clinic_patient_id) 
+		FROM appointments 
+		WHERE clinic_id = $1 AND appointment_date = $2
+		AND clinic_patient_id NOT IN (
+			SELECT clinic_patient_id FROM appointments 
+			WHERE clinic_id = $1 AND appointment_date < $2
+		)
+	`, clinicID, startDateStr).Scan(&newPatients)
+
+	// Returning Patients: Patients who have an appointment today AND had one before
+	config.DB.QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT clinic_patient_id) 
+		FROM appointments 
+		WHERE clinic_id = $1 AND appointment_date = $2
+		AND clinic_patient_id IN (
+			SELECT clinic_patient_id FROM appointments 
+			WHERE clinic_id = $1 AND appointment_date < $2
+		)
+	`, clinicID, startDateStr).Scan(&returningPatients)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
@@ -182,6 +207,11 @@ func GetDashboardStats(c *gin.Context) {
 				"clinic_visits": curClinicVisits,
 				"online_visits": curOnlineVisits,
 				"other":         curOtherVisits,
+			},
+			"patients_activity": gin.H{
+				"total":     newPatients + returningPatients,
+				"new":       newPatients,
+				"returning": returningPatients,
 			},
 			"doctors_list": doctors,
 		},
