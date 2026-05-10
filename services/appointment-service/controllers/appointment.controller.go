@@ -842,7 +842,7 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 	// Broad query that matches both Global and Clinic-Specific patients
 	query := `
         SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number, a.token_numeric, a.display_token, a.doctor_prefix,
-               a.appointment_date, a.appointment_time, a.duration_minutes, a.consultation_type, 
+               a.appointment_date, a.appointment_time, a.paid_at, a.duration_minutes, a.consultation_type, 
                a.reason, a.notes, a.status, a.fee_amount, a.payment_status, a.payment_mode, 
                a.is_priority, a.booking_mode, a.created_at,
                COALESCE(u.first_name, cp.first_name, 'Unknown') as first_name, 
@@ -877,9 +877,10 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 		var (
 			appID, pID, cpID, clinicID, docID, deptID, bookingNumber string
 			tokenNumeric                                             sql.NullInt64
-			displayToken                                             sql.NullString
+			displayToken, doctorPrefix                               sql.NullString
 			appDate                                                  time.Time
 			appTime                                                  time.Time
+			paidAt                                                   *time.Time
 			durationMins                                             int
 			consultType, reason, notes, status                       string
 			feeAmount                                                *float64
@@ -894,15 +895,15 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 
 		err := rows.Scan(
 			&appID, &pID, &cpID, &clinicID, &docID, &deptID, &bookingNumber,
-			&tokenNumeric, &displayToken,
-			&appDate, &appTime, &durationMins, &consultType,
+			&tokenNumeric, &displayToken, &doctorPrefix,
+			&appDate, &appTime, &paidAt, &durationMins, &consultType,
 			&reason, &notes, &status, &feeAmount, &payStatus, &payMode,
 			&isPriority, &bookingMode, &createdAt,
 			&pFN, &pLN, &dFN, &dLN, &clinicName,
 			&deptName, &cpMoID,
 		)
 		if err != nil {
-			log.Printf("Scan error: %v", err)
+			log.Printf("Scan error in GetAppointmentHistoryByPatient: %v", err)
 			continue
 		}
 
@@ -911,6 +912,7 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 			"booking_number":        bookingNumber,
 			"token_number":          int(tokenNumeric.Int64),
 			"display_token":         displayToken.String,
+			"doctor_prefix":         doctorPrefix.String,
 			"appointment_date_time": appTime.Format("02-01-2006 03:04 PM"),
 			"patient_name":          pFN + " " + pLN,
 			"doctor_name":           "Dr. " + dFN + " " + dLN,
@@ -920,6 +922,7 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 			"status":                status,
 			"fee_amount":            feeAmount,
 			"payment_status":        payStatus,
+			"paid_at":               paidAt,
 			"booking_mode":          bookingMode,
 			"created_at":            createdAt.Format(time.RFC3339),
 			"mo_id":                 cpMoID.String,
