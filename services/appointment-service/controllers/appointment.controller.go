@@ -1305,12 +1305,12 @@ func RecordAppointmentPayment(c *gin.Context) {
 		paymentMode = fmt.Sprintf("%s (%s)", input.PaymentType, input.PaymentMethod)
 	}
 
-	// 2. Schema Check (Perform once outside transaction)
+	// 2. Schema Check (Refined with table_schema)
 	var hasPaidAt, hasUpdatedAt bool
 	_ = config.DB.QueryRowContext(ctx, `
 		SELECT 
-			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='paid_at'),
-			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='updated_at')
+			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='paid_at' AND table_schema='public'),
+			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='updated_at' AND table_schema='public')
 	`).Scan(&hasPaidAt, &hasUpdatedAt)
 
 	// 3. Start Transaction
@@ -1338,10 +1338,11 @@ func RecordAppointmentPayment(c *gin.Context) {
 		return
 	}
 
-	// 5. Build & Execute Dynamic Update
+	// 5. Build Primary Query
 	updates := []string{"payment_status = $1", "payment_mode = $2"}
 	args := []interface{}{strings.ToLower(input.PaymentStatus), paymentMode}
 
+	// We'll try to include paid_at and updated_at if possible
 	if hasPaidAt && paidAtTime != nil {
 		updates = append(updates, fmt.Sprintf("paid_at = $%d", len(args)+1))
 		args = append(args, paidAtTime)
@@ -1349,16 +1350,37 @@ func RecordAppointmentPayment(c *gin.Context) {
 	if hasUpdatedAt {
 		updates = append(updates, "updated_at = CURRENT_TIMESTAMP")
 	}
-
 	args = append(args, appointmentID)
-	query := fmt.Sprintf("UPDATE appointments SET %s WHERE id = $%d", strings.Join(updates, ", "), len(args))
+	primaryQuery := fmt.Sprintf("UPDATE appointments SET %s WHERE id = $%d", strings.Join(updates, ", "), len(args))
 
-	if _, err = tx.ExecContext(ctx, query, args...); err != nil {
-		middleware.SendDatabaseError(c, "Failed to update appointment payment")
-		return
+	// 6. Execute with Savepoint Protection
+	// This allows us to recover from a failed query (e.g. missing column) without aborting the transaction
+	_, _ = tx.ExecContext(ctx, "SAVEPOINT before_update")
+	
+	if _, err = tx.ExecContext(ctx, primaryQuery, args...); err != nil {
+		log.Printf("Primary update failed: %v. Attempting minimal fallback.", err)
+		_, _ = tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT before_update")
+		
+		// Fallback: minimal update of core fields
+		_, err = tx.ExecContext(ctx, `
+			UPDATE appointments 
+			SET payment_status = $1, payment_mode = $2 
+			WHERE id = $3
+		`, strings.ToLower(input.PaymentStatus), paymentMode, appointmentID)
+		
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Database error",
+				"message": "Failed to update appointment payment after fallback",
+				"details": err.Error(),
+			})
+			return
+		}
+	} else {
+		_, _ = tx.ExecContext(ctx, "RELEASE SAVEPOINT before_update")
 	}
 
-	// 6. Sync with Check-in
+	// 7. Sync with Check-in
 	isPaid := strings.ToLower(input.PaymentStatus) == "paid" || strings.ToLower(input.PaymentStatus) == "waived"
 	_, _ = tx.ExecContext(ctx, "UPDATE patient_checkins SET payment_collected = $1 WHERE appointment_id = $2", isPaid, appointmentID)
 
