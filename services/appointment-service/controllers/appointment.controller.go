@@ -880,7 +880,7 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var appointments []gin.H
+	var appointments = []gin.H{}
 
 	for rows.Next() {
 		var (
