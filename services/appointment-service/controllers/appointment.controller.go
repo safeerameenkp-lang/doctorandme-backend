@@ -945,11 +945,25 @@ func UpdateAppointment(c *gin.Context) {
 		return
 	}
 
+	// Schema Check (Pre-flight)
+	var hasPaidAt, hasUpdatedAt bool
+	_ = config.DB.QueryRowContext(ctx, `
+		SELECT 
+			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='paid_at') as has_paid_at,
+			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='updated_at') as has_updated_at
+	`).Scan(&hasPaidAt, &hasUpdatedAt)
+
 	// Build dynamic update query
 	query := "UPDATE appointments SET"
 	args := []interface{}{}
 	argIndex := 1
 	updates := []string{}
+
+	if hasUpdatedAt {
+		updates = append(updates, fmt.Sprintf(" updated_at = $%d", argIndex))
+		args = append(args, time.Now())
+		argIndex++
+	}
 
 	if input.AppointmentTime != nil {
 		appointmentTime, err := time.Parse("2006-01-02 15:04:05", *input.AppointmentTime)
@@ -1012,15 +1026,12 @@ func UpdateAppointment(c *gin.Context) {
 		args = append(args, *input.PaymentStatus)
 		argIndex++
 
-		// Safety check: Only add paid_at if it's 'paid'
-		if strings.ToLower(*input.PaymentStatus) == "paid" {
+		// Safety check: Only add paid_at if it's 'paid' and column exists
+		if strings.ToLower(*input.PaymentStatus) == "paid" && hasPaidAt {
 			updates = append(updates, fmt.Sprintf(" paid_at = $%d", argIndex))
 			args = append(args, time.Now())
 			argIndex++
-		} else if strings.ToLower(*input.PaymentStatus) == "pending" {
-			// We can clear paid_at if it becomes pending again
-			// Note: This assumes paid_at exists. If not, this might fail, 
-			// but we keep it dynamic for now.
+		} else if strings.ToLower(*input.PaymentStatus) == "pending" && hasPaidAt {
 			updates = append(updates, fmt.Sprintf(" paid_at = $%d", argIndex))
 			args = append(args, nil)
 			argIndex++
@@ -1329,44 +1340,62 @@ func RecordAppointmentPayment(c *gin.Context) {
 		return
 	}
 
-	// 5. Dynamic Update (Ultra-safe)
-	updates := []string{
-		"payment_status = $1",
-		"payment_mode = $2",
-	}
-	
+	// 5. Schema Check (Pre-flight)
+	// We check if the columns exist to avoid aborting the transaction with a bad query
+	var hasPaidAt, hasUpdatedAt bool
+	_ = config.DB.QueryRowContext(ctx, `
+		SELECT 
+			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='paid_at') as has_paid_at,
+			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='updated_at') as has_updated_at
+	`).Scan(&hasPaidAt, &hasUpdatedAt)
+
+	// 6. Build Query based on available columns
+	updates := []string{"payment_status = $1", "payment_mode = $2"}
 	args := []interface{}{strings.ToLower(input.PaymentStatus), paymentMode}
-	
-	// Only add paid_at if provided
-	if paidAtTime != nil {
+
+	if hasPaidAt && paidAtTime != nil {
 		updates = append(updates, fmt.Sprintf("paid_at = $%d", len(args)+1))
 		args = append(args, paidAtTime)
 	}
-
-	// Add appointmentID as final argument
-	args = append(args, appointmentID)
-	argIdx := len(args)
-
-	query := fmt.Sprintf("UPDATE appointments SET %s WHERE id = $%d", strings.Join(updates, ", "), argIdx)
-
-	_, err = tx.ExecContext(ctx, query, args...)
-	if err != nil {
-		log.Printf("Warning: Primary payment update failed: %v. Retrying with minimal fallback.", err)
-		// Fallback: Try update with ONLY the most critical fields
-		_, err = tx.ExecContext(ctx, `
-			UPDATE appointments 
-			SET payment_status = $1, 
-			    payment_mode = $2
-			WHERE id = $3
-		`, strings.ToLower(input.PaymentStatus), paymentMode, appointmentID)
-		
-		if err != nil {
-			middleware.SendDatabaseError(c, "Failed to update appointment payment")
-			return
-		}
+	if hasUpdatedAt {
+		updates = append(updates, "updated_at = CURRENT_TIMESTAMP")
 	}
 
-	// 6. Sync with check-in record (Conditional)
+	args = append(args, appointmentID)
+	query := fmt.Sprintf("UPDATE appointments SET %s WHERE id = $%d", strings.Join(updates, ", "), len(args))
+
+	tx, err := config.DB.BeginTx(ctx, nil)
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to start transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	// 7. Verify appointment state
+	var currentStatus string
+	err = tx.QueryRowContext(ctx, "SELECT status FROM appointments WHERE id = $1", appointmentID).Scan(&currentStatus)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			middleware.SendNotFoundError(c, "Appointment")
+		} else {
+			middleware.SendDatabaseError(c, "Failed to fetch appointment status")
+		}
+		return
+	}
+
+	if currentStatus == "cancelled" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot record payment for a cancelled appointment"})
+		return
+	}
+
+	// 8. Execute update
+	_, err = tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to update appointment payment")
+		return
+	}
+
+	// 9. Sync with check-in record
 	isPaid := strings.ToLower(input.PaymentStatus) == "paid" || strings.ToLower(input.PaymentStatus) == "waived"
 	_, _ = tx.ExecContext(ctx, `
 		UPDATE patient_checkins 
@@ -1642,17 +1671,13 @@ func CreatePatientWithAppointment(c *gin.Context) {
 	// Auto-payment and check-in (Safe dynamic update)
 	if input.PaymentMode != nil && *input.PaymentMode != "" {
 		now := time.Now()
-		// We use a separate query or build it dynamic if we want to be safe
-		// For simplicity, we try the full update, but the user's philosophy is to be safe
-		_, err = tx.ExecContext(ctx, `
-			UPDATE appointments 
-			SET payment_status = 'paid', 
-			    paid_at = $1 
-			WHERE id = $2
-		`, now, appointment.ID)
 		
-		if err != nil {
-			// Fallback: update without paid_at if it fails
+		var hasPaidAt bool
+		_ = tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='paid_at')").Scan(&hasPaidAt)
+
+		if hasPaidAt {
+			_, _ = tx.ExecContext(ctx, "UPDATE appointments SET payment_status = 'paid', paid_at = $1 WHERE id = $2", now, appointment.ID)
+		} else {
 			_, _ = tx.ExecContext(ctx, "UPDATE appointments SET payment_status = 'paid' WHERE id = $1", appointment.ID)
 		}
 		
