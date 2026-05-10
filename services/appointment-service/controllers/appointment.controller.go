@@ -868,7 +868,12 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
         JOIN users du ON du.id = d.user_id
         JOIN clinics c ON c.id = a.clinic_id
         LEFT JOIN departments dept ON dept.id = a.department_id
-        WHERE (a.patient_id = $1 OR a.clinic_patient_id = $1)
+        WHERE (
+            a.patient_id = $1 OR 
+            a.clinic_patient_id = $1 OR 
+            a.patient_id IN (SELECT id FROM patients WHERE user_id = (SELECT user_id FROM patients WHERE id = $1)) OR
+            a.clinic_patient_id IN (SELECT id FROM clinic_patients WHERE phone = (SELECT phone FROM clinic_patients WHERE id = $1))
+        )
         ORDER BY a.appointment_time DESC LIMIT $2
     `, paidAtCol)
 
