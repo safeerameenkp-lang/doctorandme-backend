@@ -1284,17 +1284,9 @@ func RecordAppointmentPayment(c *gin.Context) {
 		return
 	}
 
-	// 1. Validation
-	validStatuses := map[string]bool{"paid": true, "pending": true, "waived": true}
-	if !validStatuses[strings.ToLower(input.PaymentStatus)] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payment status", "valid_values": "paid, pending, waived"})
-		return
-	}
-
-	// 2. Parse PaidAt or use current time
+	// 1. Validation & Date Parsing
 	var paidAtTime *time.Time
 	if input.PaidAt != "" {
-		// Try multiple formats
 		formats := []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"}
 		for _, f := range formats {
 			if t, err := time.Parse(f, input.PaidAt); err == nil {
@@ -1303,19 +1295,25 @@ func RecordAppointmentPayment(c *gin.Context) {
 			}
 		}
 	}
-	
-	// If status is 'paid' and no time provided, use current
 	if strings.ToLower(input.PaymentStatus) == "paid" && paidAtTime == nil {
 		now := time.Now()
 		paidAtTime = &now
 	}
 
-	// 3. Form descriptive payment mode
 	paymentMode := input.PaymentType
 	if input.PaymentMethod != "" && input.PaymentMethod != input.PaymentType {
 		paymentMode = fmt.Sprintf("%s (%s)", input.PaymentType, input.PaymentMethod)
 	}
 
+	// 2. Schema Check (Perform once outside transaction)
+	var hasPaidAt, hasUpdatedAt bool
+	_ = config.DB.QueryRowContext(ctx, `
+		SELECT 
+			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='paid_at'),
+			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='updated_at')
+	`).Scan(&hasPaidAt, &hasUpdatedAt)
+
+	// 3. Start Transaction
 	tx, err := config.DB.BeginTx(ctx, nil)
 	if err != nil {
 		middleware.SendDatabaseError(c, "Failed to start transaction")
@@ -1323,7 +1321,7 @@ func RecordAppointmentPayment(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	// 4. Verify appointment state
+	// 4. Verify Appointment State
 	var currentStatus string
 	err = tx.QueryRowContext(ctx, "SELECT status FROM appointments WHERE id = $1", appointmentID).Scan(&currentStatus)
 	if err != nil {
@@ -1340,16 +1338,7 @@ func RecordAppointmentPayment(c *gin.Context) {
 		return
 	}
 
-	// 5. Schema Check (Pre-flight)
-	// We check if the columns exist to avoid aborting the transaction with a bad query
-	var hasPaidAt, hasUpdatedAt bool
-	_ = config.DB.QueryRowContext(ctx, `
-		SELECT 
-			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='paid_at') as has_paid_at,
-			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='updated_at') as has_updated_at
-	`).Scan(&hasPaidAt, &hasUpdatedAt)
-
-	// 6. Build Query based on available columns
+	// 5. Build & Execute Dynamic Update
 	updates := []string{"payment_status = $1", "payment_mode = $2"}
 	args := []interface{}{strings.ToLower(input.PaymentStatus), paymentMode}
 
@@ -1364,47 +1353,17 @@ func RecordAppointmentPayment(c *gin.Context) {
 	args = append(args, appointmentID)
 	query := fmt.Sprintf("UPDATE appointments SET %s WHERE id = $%d", strings.Join(updates, ", "), len(args))
 
-	tx, err := config.DB.BeginTx(ctx, nil)
-	if err != nil {
-		middleware.SendDatabaseError(c, "Failed to start transaction")
-		return
-	}
-	defer tx.Rollback()
-
-	// 7. Verify appointment state
-	var currentStatus string
-	err = tx.QueryRowContext(ctx, "SELECT status FROM appointments WHERE id = $1", appointmentID).Scan(&currentStatus)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			middleware.SendNotFoundError(c, "Appointment")
-		} else {
-			middleware.SendDatabaseError(c, "Failed to fetch appointment status")
-		}
-		return
-	}
-
-	if currentStatus == "cancelled" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot record payment for a cancelled appointment"})
-		return
-	}
-
-	// 8. Execute update
-	_, err = tx.ExecContext(ctx, query, args...)
-	if err != nil {
+	if _, err = tx.ExecContext(ctx, query, args...); err != nil {
 		middleware.SendDatabaseError(c, "Failed to update appointment payment")
 		return
 	}
 
-	// 9. Sync with check-in record
+	// 6. Sync with Check-in
 	isPaid := strings.ToLower(input.PaymentStatus) == "paid" || strings.ToLower(input.PaymentStatus) == "waived"
-	_, _ = tx.ExecContext(ctx, `
-		UPDATE patient_checkins 
-		SET payment_collected = $1 
-		WHERE appointment_id = $2
-	`, isPaid, appointmentID)
+	_, _ = tx.ExecContext(ctx, "UPDATE patient_checkins SET payment_collected = $1 WHERE appointment_id = $2", isPaid, appointmentID)
 
 	if err = tx.Commit(); err != nil {
-		middleware.SendDatabaseError(c, "Failed to commit payment record")
+		middleware.SendDatabaseError(c, "Failed to commit transaction")
 		return
 	}
 
