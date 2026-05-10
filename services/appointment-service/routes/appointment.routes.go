@@ -31,6 +31,7 @@ func AppointmentRoutes(rg *gin.RouterGroup) {
 		appointments.PUT("/:id", middleware.RequireRole(config.DB, "clinic_admin", "receptionist"), controllers.UpdateAppointment)
 		appointments.POST("/:id/reschedule", middleware.RequireRole(config.DB, "clinic_admin", "receptionist"), controllers.RescheduleAppointment)
 		appointments.POST("/:id/cancel", middleware.RequireRole(config.DB, "clinic_admin", "receptionist"), controllers.CancelAppointment)
+		appointments.POST("/:id/payment", middleware.RequireRole(config.DB, "clinic_admin", "receptionist"), controllers.RecordAppointmentPayment)
 		appointments.GET("/slots/available", middleware.RequireRole(config.DB, "clinic_admin", "receptionist"), controllers.GetAvailableTimeSlots)
 		appointments.GET("/dashboard", middleware.RequireRole(config.DB, "clinic_admin", "receptionist", "doctor"), controllers.GetDashboardStats)
 		appointments.GET("/summary", middleware.RequireRole(config.DB, "clinic_admin", "receptionist", "doctor"), controllers.GetAppointmentSummary)

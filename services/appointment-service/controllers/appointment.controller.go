@@ -1242,6 +1242,73 @@ func CancelAppointment(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Appointment cancelled successfully"})
 }
 
+func RecordAppointmentPayment(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	appointmentID := c.Param("id")
+	var input struct {
+		PaymentMethod string `json:"payment_method" binding:"required"`
+		PaymentType   string `json:"payment_type" binding:"required"`
+		PaymentStatus string `json:"payment_status" binding:"required"`
+		PaidAt        string `json:"paid_at"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		middleware.SendValidationError(c, "Invalid payment data", err.Error())
+		return
+	}
+
+	// Use payment_type as the mode (cash, card, upi)
+	paymentMode := input.PaymentType
+
+	tx, err := config.DB.BeginTx(ctx, nil)
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to start transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	// 1. Update appointment payment info
+	result, err := tx.ExecContext(ctx, `
+		UPDATE appointments 
+		SET payment_status = $1, 
+		    payment_mode = $2, 
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $3
+	`, input.PaymentStatus, paymentMode, appointmentID)
+
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to update appointment payment")
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		middleware.SendNotFoundError(c, "Appointment")
+		return
+	}
+
+	// 2. Optionally update check-in record if it exists
+	_, _ = tx.ExecContext(ctx, `
+		UPDATE patient_checkins 
+		SET payment_collected = true 
+		WHERE appointment_id = $1
+	`, appointmentID)
+
+	if err = tx.Commit(); err != nil {
+		middleware.SendDatabaseError(c, "Failed to commit payment record")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Payment recorded successfully",
+		"appointment_id": appointmentID,
+		"payment_status": input.PaymentStatus,
+		"payment_mode": paymentMode,
+	})
+}
+
 func CreatePatientWithAppointment(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
 	defer cancel()
