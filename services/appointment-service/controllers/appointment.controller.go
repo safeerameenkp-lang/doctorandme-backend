@@ -1329,23 +1329,21 @@ func RecordAppointmentPayment(c *gin.Context) {
 		return
 	}
 
-	// 5. Dynamic Update
+	// 5. Dynamic Update (Ultra-safe)
 	updates := []string{
 		"payment_status = $1",
 		"payment_mode = $2",
-		"updated_at = CURRENT_TIMESTAMP",
 	}
 	
-	// Rebuild args list
 	args := []interface{}{strings.ToLower(input.PaymentStatus), paymentMode}
 	
-	// Only add paid_at if it's provided
+	// Only add paid_at if provided
 	if paidAtTime != nil {
 		updates = append(updates, fmt.Sprintf("paid_at = $%d", len(args)+1))
 		args = append(args, paidAtTime)
 	}
 
-	// Add appointmentID as the final argument for the WHERE clause
+	// Add appointmentID as final argument
 	args = append(args, appointmentID)
 	argIdx := len(args)
 
@@ -1353,13 +1351,12 @@ func RecordAppointmentPayment(c *gin.Context) {
 
 	_, err = tx.ExecContext(ctx, query, args...)
 	if err != nil {
-		log.Printf("Warning: Payment update with paid_at failed: %v. Retrying without paid_at.", err)
-		// Fallback: Try update without paid_at
+		log.Printf("Warning: Primary payment update failed: %v. Retrying with minimal fallback.", err)
+		// Fallback: Try update with ONLY the most critical fields
 		_, err = tx.ExecContext(ctx, `
 			UPDATE appointments 
 			SET payment_status = $1, 
-			    payment_mode = $2, 
-			    updated_at = CURRENT_TIMESTAMP
+			    payment_mode = $2
 			WHERE id = $3
 		`, strings.ToLower(input.PaymentStatus), paymentMode, appointmentID)
 		
