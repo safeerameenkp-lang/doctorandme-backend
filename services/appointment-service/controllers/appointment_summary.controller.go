@@ -94,6 +94,28 @@ func GetAppointmentSummary(c *gin.Context) {
 	// This includes those currently 'arrived', 'in_consultation', and 'completed'.
 	summary["arrived"] = counts["arrived"] + counts["in_consultation"] + counts["completed"]
 
+	// Get payment breakdown (collections) for today
+	var cashRevenue, cardRevenue, upiRevenue, totalRevenue float64
+	paymentQuery := `
+		SELECT 
+			COALESCE(SUM(CASE WHEN payment_mode = 'cash' THEN fee_amount ELSE 0 END), 0) as cash_rev,
+			COALESCE(SUM(CASE WHEN payment_mode = 'card' THEN fee_amount ELSE 0 END), 0) as card_rev,
+			COALESCE(SUM(CASE WHEN payment_mode = 'upi' THEN fee_amount ELSE 0 END), 0) as upi_rev,
+			COALESCE(SUM(fee_amount), 0) as total_rev
+		FROM appointments 
+		WHERE clinic_id = $1 AND appointment_date = $2 AND payment_status IN ('paid', 'completed', 'success') AND status != 'cancelled'
+	`
+	paymentArgs := []interface{}{clinicID, date}
+	paymentArgIndex := 3
+
+	if doctorID != "" && doctorID != "all" {
+		paymentQuery += fmt.Sprintf(" AND doctor_id = $%d", paymentArgIndex)
+		paymentArgs = append(paymentArgs, doctorID)
+		paymentArgIndex++
+	}
+
+	_ = config.DB.QueryRowContext(ctx, paymentQuery, paymentArgs...).Scan(&cashRevenue, &cardRevenue, &upiRevenue, &totalRevenue)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,
 		"clinic_id": clinicID,
@@ -101,5 +123,11 @@ func GetAppointmentSummary(c *gin.Context) {
 		"doctor_id": doctorID,
 		"status":    statusFilter,
 		"summary":   summary,
+		"payments": gin.H{
+			"cash":  cashRevenue,
+			"card":  cardRevenue,
+			"upi":   upiRevenue,
+			"total": totalRevenue,
+		},
 	})
 }

@@ -843,13 +843,21 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 	var hasPaidAt bool
 	_ = config.DB.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='appointments' AND column_name='paid_at' AND table_schema='public')").Scan(&hasPaidAt)
 
-	// 2. Build Dynamic Query
+	// 2. Build Dynamic Query with Identity Resolution
 	paidAtCol := "NULL as paid_at"
 	if hasPaidAt {
 		paidAtCol = "a.paid_at"
 	}
 
 	query := fmt.Sprintf(`
+        WITH target_patient AS (
+            -- Resolve all possible identities for the given ID
+            SELECT p.id as p_id, p.user_id, cp.id as cp_id, COALESCE(cp.phone, u.phone) as phone
+            FROM (SELECT $1::uuid as input_id) input
+            LEFT JOIN patients p ON p.id = input.input_id
+            LEFT JOIN users u ON u.id = p.user_id
+            LEFT JOIN clinic_patients cp ON cp.id = input.input_id OR cp.phone = u.phone
+        )
         SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number, a.token_numeric, a.display_token, a.doctor_prefix,
                a.appointment_date, a.appointment_time, %s, a.duration_minutes, a.consultation_type, 
                a.reason, a.notes, a.status, a.fee_amount, a.payment_status, a.payment_mode, 
@@ -868,13 +876,13 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
         JOIN users du ON du.id = d.user_id
         JOIN clinics c ON c.id = a.clinic_id
         LEFT JOIN departments dept ON dept.id = a.department_id
-        WHERE (
+        WHERE 
             a.patient_id = $1 OR 
-            a.clinic_patient_id = $1 OR 
-            a.patient_id IN (SELECT id FROM patients WHERE user_id = (SELECT user_id FROM patients WHERE id = $1)) OR
-            a.clinic_patient_id IN (SELECT id FROM clinic_patients WHERE phone = (SELECT phone FROM clinic_patients WHERE id = $1))
-        )
-        ORDER BY a.appointment_time DESC LIMIT $2
+            a.clinic_patient_id = $1 OR
+            a.patient_id IN (SELECT p_id FROM target_patient WHERE p_id IS NOT NULL) OR
+            a.clinic_patient_id IN (SELECT cp_id FROM target_patient WHERE cp_id IS NOT NULL) OR
+            a.clinic_patient_id IN (SELECT id FROM clinic_patients WHERE phone IN (SELECT phone FROM target_patient WHERE phone IS NOT NULL))
+        ORDER BY a.appointment_date DESC, a.appointment_time DESC LIMIT $2
     `, paidAtCol)
 
 	rows, err := config.DB.QueryContext(ctx, query, patientID, limit)

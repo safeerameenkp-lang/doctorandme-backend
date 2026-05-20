@@ -57,6 +57,7 @@ func GetSimpleAppointmentList(c *gin.Context) {
 			a.status,
 			a.fee_amount,
 			a.payment_status,
+			a.payment_mode,
 			a.booking_number,
 			a.booking_mode,
 			a.created_at
@@ -113,6 +114,7 @@ func GetSimpleAppointmentList(c *gin.Context) {
 			&apt.Status,
 			&apt.FeeAmount,
 			&apt.PaymentStatus,
+			&apt.PaymentMode,
 			&apt.BookingNumber,
 			&apt.BookingMode,
 			&createdAt,

@@ -32,6 +32,7 @@ type AppointmentListItem struct {
 	FeeStatus           string   `json:"fee_status"`
 	FeeAmount           *float64 `json:"fee_amount"`
 	PaymentStatus       string   `json:"payment_status"`
+	PaymentMode         *string  `json:"payment_mode"`
 	BookingNumber       string   `json:"booking_number"`
 	CreatedAt           string   `json:"created_at"`
 	DoctorImage         *string  `json:"doctor_image"`
