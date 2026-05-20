@@ -98,9 +98,9 @@ func GetAppointmentSummary(c *gin.Context) {
 	var cashRevenue, cardRevenue, upiRevenue, totalRevenue float64
 	paymentQuery := `
 		SELECT 
-			COALESCE(SUM(CASE WHEN payment_mode = 'cash' THEN fee_amount ELSE 0 END), 0) as cash_rev,
-			COALESCE(SUM(CASE WHEN payment_mode = 'card' THEN fee_amount ELSE 0 END), 0) as card_rev,
-			COALESCE(SUM(CASE WHEN payment_mode = 'upi' THEN fee_amount ELSE 0 END), 0) as upi_rev,
+			COALESCE(SUM(CASE WHEN LOWER(payment_mode) = 'cash' THEN fee_amount ELSE 0 END), 0) as cash_rev,
+			COALESCE(SUM(CASE WHEN LOWER(payment_mode) = 'card' THEN fee_amount ELSE 0 END), 0) as card_rev,
+			COALESCE(SUM(CASE WHEN LOWER(payment_mode) = 'upi' THEN fee_amount ELSE 0 END), 0) as upi_rev,
 			COALESCE(SUM(fee_amount), 0) as total_rev
 		FROM appointments 
 		WHERE clinic_id = $1 AND appointment_date = $2 AND payment_status IN ('paid', 'completed', 'success') AND status != 'cancelled'
