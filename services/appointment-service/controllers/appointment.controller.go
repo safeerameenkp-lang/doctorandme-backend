@@ -70,7 +70,7 @@ type RescheduleAppointmentInput struct {
 }
 
 type CancelAppointmentInput struct {
-	Reason string `json:"reason" binding:"required"`
+	Reason string `json:"reason"`
 }
 
 type CreatePatientWithAppointmentInput struct {
@@ -1207,7 +1207,8 @@ func CancelAppointment(c *gin.Context) {
 
 	appointmentID := c.Param("id")
 	var input CancelAppointmentInput
-	if err := c.ShouldBindJSON(&input); err != nil {
+	// Bind JSON optional body. If EOF or empty request, proceed with empty reason
+	if err := c.ShouldBindJSON(&input); err != nil && err.Error() != "EOF" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
