@@ -573,6 +573,7 @@ func GetAppointments(c *gin.Context) {
         SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number, a.token_numeric, a.display_token, a.doctor_prefix,
                a.appointment_date, a.appointment_time, a.duration_minutes, a.consultation_type, 
                a.reason, a.notes, a.status, a.fee_amount, a.payment_status, a.payment_mode, 
+               a.payment_method, a.paid_amount,
                a.is_priority, a.booking_mode, a.created_at,
                p.user_id, p.mo_id, 
                COALESCE(u.first_name, cp.first_name, 'Unknown') as first_name, 
@@ -650,6 +651,9 @@ func GetAppointments(c *gin.Context) {
 		FeeStatus           string   `json:"fee_status"`
 		FeeAmount           *float64 `json:"fee_amount"`
 		PaymentStatus       string   `json:"payment_status"`
+		PaymentMode         *string  `json:"payment_mode"`
+		PaymentMethod       *string  `json:"payment_method"`
+		PaidAmount          *float64 `json:"paid_amount"`
 		TokenNumber         int      `json:"token_number"`
 		DisplayToken        string   `json:"display_token"`
 		DoctorPrefix        string   `json:"doctor_prefix"`
@@ -673,6 +677,8 @@ func GetAppointments(c *gin.Context) {
 			consultType, reason, notes, status                                           string
 			feeAmount                                                                    *float64
 			payStatus, payMode                                                           string
+			payMethod                                                                    sql.NullString
+			paidAmount                                                                   sql.NullFloat64
 			isPriority                                                                   bool
 			bookingMode                                                                  string
 			createdAt                                                                    time.Time
@@ -691,6 +697,7 @@ func GetAppointments(c *gin.Context) {
 			&tokenNumeric, &displayToken, &doctorPrefix,
 			&appointmentDate, &appointmentTime, &duration_mins, &consultType,
 			&reason, &notes, &status, &feeAmount, &payStatus, &payMode,
+			&payMethod, &paidAmount,
 			&isPriority, &bookingMode, &createdAt,
 			&u_userID, &p_moID, &u_first, &u_last, &u_phone, &u_email,
 			&p_medHist, &p_allergies, &p_bloodGroup,
@@ -721,6 +728,12 @@ func GetAppointments(c *gin.Context) {
 			BookingNumber:       bookingNumber,
 			BookingMode:         bookingMode,
 			CreatedAt:           createdAt.Format(time.RFC3339),
+		}
+		if payMethod.Valid {
+			item.PaymentMethod = &payMethod.String
+		}
+		if paidAmount.Valid {
+			item.PaidAmount = &paidAmount.Float64
 		}
 
 		if p_moID.Valid {
@@ -767,6 +780,7 @@ func GetAppointment(c *gin.Context) {
         SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number, a.token_numeric, a.display_token, a.doctor_prefix,
                a.appointment_date, a.appointment_time, a.duration_minutes, a.consultation_type, 
                a.reason, a.notes, a.status, a.fee_amount, a.payment_status, a.payment_mode, 
+               a.payment_method, a.paid_amount,
                a.is_priority, a.booking_mode, a.created_at,
                p.user_id, p.mo_id, 
                COALESCE(u.first_name, cp.first_name, 'Unknown') as first_name, 
@@ -793,7 +807,9 @@ func GetAppointment(c *gin.Context) {
 		&appointment.DepartmentID, &appointment.BookingNumber, &appointment.TokenNumeric, &appointment.DisplayToken, &appointment.DoctorPrefix, &appointment.AppointmentDate,
 		&appointment.AppointmentTime, &appointment.DurationMinutes, &appointment.ConsultationType,
 		&appointment.Reason, &appointment.Notes, &appointment.Status, &appointment.FeeAmount,
-		&appointment.PaymentStatus, &appointment.PaymentMode, &appointment.IsPriority,
+		&appointment.PaymentStatus, &appointment.PaymentMode, 
+		&appointment.PaymentMethod, &appointment.PaidAmount,
+		&appointment.IsPriority,
 		&appointment.BookingMode, &appointment.CreatedAt,
 		&patientInfo.UserID, &patientInfo.MOID, &patientInfo.FirstName, &patientInfo.LastName, &patientInfo.Phone,
 		&patientInfo.Email, &patientInfo.MedicalHistory, &patientInfo.Allergies, &patientInfo.BloodGroup,
@@ -861,6 +877,7 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
         SELECT a.id, a.patient_id, a.clinic_patient_id, a.clinic_id, a.doctor_id, a.department_id, a.booking_number, a.token_numeric, a.display_token, a.doctor_prefix,
                a.appointment_date, a.appointment_time, %s, a.duration_minutes, a.consultation_type, 
                a.reason, a.notes, a.status, a.fee_amount, a.payment_status, a.payment_mode, 
+               a.payment_method, a.paid_amount,
                a.is_priority, a.booking_mode, a.created_at,
                COALESCE(u.first_name, cp.first_name, 'Unknown') as first_name, 
                COALESCE(u.last_name, cp.last_name, '') as last_name, 
@@ -907,6 +924,8 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 			consultType, reason, notes, status                       string
 			feeAmount                                                *float64
 			payStatus, payMode                                       string
+			payMethod                                                sql.NullString
+			paidAmount                                               sql.NullFloat64
 			isPriority                                               bool
 			bookingMode                                              string
 			createdAt                                                time.Time
@@ -920,6 +939,7 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 			&tokenNumeric, &displayToken, &doctorPrefix,
 			&appDate, &appTime, &paidAt, &durationMins, &consultType,
 			&reason, &notes, &status, &feeAmount, &payStatus, &payMode,
+			&payMethod, &paidAmount,
 			&isPriority, &bookingMode, &createdAt,
 			&pFN, &pLN, &dFN, &dLN, &clinicName,
 			&deptName, &cpMoID,
@@ -947,6 +967,8 @@ func GetAppointmentHistoryByPatient(c *gin.Context) {
 			"status":                status,
 			"fee_amount":            feeAmount,
 			"payment_status":        payStatus,
+			"payment_method":        payMethod.String,
+			"paid_amount":           paidAmount.Float64,
 			"paid_at":               paidAt,
 			"booking_mode":          bookingMode,
 			"created_at":            createdAt.Format(time.RFC3339),
@@ -1426,6 +1448,90 @@ func RecordAppointmentPayment(c *gin.Context) {
 		"paid_at":        paidAtTime,
 	})
 }
+
+// RecordPayment - Record payment for an appointment using payment_method and paid_amount
+// POST /appointments/:id/record-payment
+func RecordPayment(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	appointmentID := c.Param("id")
+	var input struct {
+		PaymentMethod string  `json:"payment_method" binding:"required"`
+		PaidAmount    float64 `json:"paid_amount" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		middleware.SendValidationError(c, "Invalid payment data", err.Error())
+		return
+	}
+
+	paymentMethod := strings.ToLower(input.PaymentMethod)
+	if paymentMethod != "cash" && paymentMethod != "upi" && paymentMethod != "card" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "payment_method must be one of: cash, upi, card"})
+		return
+	}
+
+	// Start Transaction
+	tx, err := config.DB.BeginTx(ctx, nil)
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to start transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	// Verify Appointment State
+	var currentStatus string
+	err = tx.QueryRowContext(ctx, "SELECT status FROM appointments WHERE id = $1", appointmentID).Scan(&currentStatus)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			middleware.SendNotFoundError(c, "Appointment")
+		} else {
+			middleware.SendDatabaseError(c, "Failed to fetch appointment status")
+		}
+		return
+	}
+
+	if currentStatus == "cancelled" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot record payment for a cancelled appointment"})
+		return
+	}
+
+	// Update Appointment with payment method, paid amount, and paid status
+	_, err = tx.ExecContext(ctx, `
+		UPDATE appointments 
+		SET payment_status = 'paid', 
+		    payment_method = $1, 
+		    paid_amount = $2, 
+		    payment_mode = $3,
+		    paid_at = CURRENT_TIMESTAMP
+		WHERE id = $4
+	`, paymentMethod, input.PaidAmount, paymentMethod, appointmentID)
+	if err != nil {
+		middleware.SendDatabaseError(c, "Failed to record payment details")
+		return
+	}
+
+	// Sync with Check-in
+	_, _ = tx.ExecContext(ctx, "UPDATE patient_checkins SET payment_collected = true WHERE appointment_id = $1", appointmentID)
+
+	if err = tx.Commit(); err != nil {
+		middleware.SendDatabaseError(c, "Failed to commit transaction")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Payment recorded successfully",
+		"data": gin.H{
+			"appointment_id": appointmentID,
+			"payment_status": "paid",
+			"payment_method": paymentMethod,
+			"paid_amount":    input.PaidAmount,
+		},
+	})
+}
+
 
 func CreatePatientWithAppointment(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)

@@ -94,16 +94,16 @@ func GetAppointmentSummary(c *gin.Context) {
 	// This includes those currently 'arrived', 'in_consultation', and 'completed'.
 	summary["arrived"] = counts["arrived"] + counts["in_consultation"] + counts["completed"]
 
-	// Get payment breakdown (collections) for today
+	// Get payment breakdown (collections) for today using payment_method and paid_amount
 	var cashRevenue, cardRevenue, upiRevenue, totalRevenue float64
 	paymentQuery := `
 		SELECT 
-			COALESCE(SUM(CASE WHEN LOWER(COALESCE(payment_mode, 'cash')) IN ('cash', 'pay_now', 'pay_later') THEN fee_amount ELSE 0 END), 0) as cash_rev,
-			COALESCE(SUM(CASE WHEN LOWER(payment_mode) = 'card' THEN fee_amount ELSE 0 END), 0) as card_rev,
-			COALESCE(SUM(CASE WHEN LOWER(payment_mode) = 'upi' THEN fee_amount ELSE 0 END), 0) as upi_rev,
-			COALESCE(SUM(fee_amount), 0) as total_rev
+			COALESCE(SUM(CASE WHEN LOWER(payment_method) = 'cash' THEN paid_amount ELSE 0 END), 0) as cash_rev,
+			COALESCE(SUM(CASE WHEN LOWER(payment_method) = 'card' THEN paid_amount ELSE 0 END), 0) as card_rev,
+			COALESCE(SUM(CASE WHEN LOWER(payment_method) = 'upi' THEN paid_amount ELSE 0 END), 0) as upi_rev,
+			COALESCE(SUM(paid_amount), 0) as total_rev
 		FROM appointments 
-		WHERE clinic_id = $1 AND appointment_date = $2 AND payment_status IN ('paid', 'completed', 'success') AND status != 'cancelled'
+		WHERE clinic_id = $1 AND appointment_date = $2 AND payment_status = 'paid' AND status != 'cancelled'
 	`
 	paymentArgs := []interface{}{clinicID, date}
 	paymentArgIndex := 3
@@ -131,3 +131,62 @@ func GetAppointmentSummary(c *gin.Context) {
 		},
 	})
 }
+
+// GetCollections - Get collection breakdown by payment methods
+// GET /appointments/collections?clinic_id=...&date=...&doctor_id=...
+func GetCollections(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	clinicID := c.Query("clinic_id")
+	date := c.Query("date")
+	doctorID := c.Query("doctor_id")
+
+	if clinicID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "clinic_id is required"})
+		return
+	}
+
+	query := `
+		SELECT 
+			COALESCE(SUM(CASE WHEN LOWER(payment_method) = 'cash' THEN paid_amount ELSE 0 END), 0) as cash_total,
+			COALESCE(SUM(CASE WHEN LOWER(payment_method) = 'upi' THEN paid_amount ELSE 0 END), 0) as upi_total,
+			COALESCE(SUM(CASE WHEN LOWER(payment_method) = 'card' THEN paid_amount ELSE 0 END), 0) as card_total,
+			COALESCE(SUM(paid_amount), 0) as total_collection
+		FROM appointments 
+		WHERE clinic_id = $1 AND payment_status = 'paid' AND status != 'cancelled'
+	`
+	args := []interface{}{clinicID}
+	argIndex := 2
+
+	if date != "" {
+		query += fmt.Sprintf(" AND appointment_date = $%d", argIndex)
+		args = append(args, date)
+		argIndex++
+	}
+
+	if doctorID != "" && doctorID != "all" {
+		query += fmt.Sprintf(" AND doctor_id = $%d", argIndex)
+		args = append(args, doctorID)
+		argIndex++
+	}
+
+	var cashTotal, upiTotal, cardTotal, totalCollection float64
+	err := config.DB.QueryRowContext(ctx, query, args...).Scan(&cashTotal, &upiTotal, &cardTotal, &totalCollection)
+	if err != nil {
+		log.Printf("ERROR: GetCollections failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch collections"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"total_collection": totalCollection,
+			"cash_total":       cashTotal,
+			"upi_total":        upiTotal,
+			"card_total":       cardTotal,
+		},
+	})
+}
+

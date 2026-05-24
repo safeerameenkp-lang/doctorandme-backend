@@ -32,9 +32,11 @@ func AppointmentRoutes(rg *gin.RouterGroup) {
 		appointments.POST("/:id/reschedule", middleware.RequireRole(config.DB, "clinic_admin", "receptionist"), controllers.RescheduleAppointment)
 		appointments.POST("/:id/cancel", middleware.RequireRole(config.DB, "clinic_admin", "receptionist"), controllers.CancelAppointment)
 		appointments.POST("/:id/payment", middleware.RequireRole(config.DB, "clinic_admin", "receptionist"), controllers.RecordAppointmentPayment)
+		appointments.POST("/:id/record-payment", middleware.RequireRole(config.DB, "clinic_admin", "receptionist"), controllers.RecordPayment)
 		appointments.GET("/slots/available", middleware.RequireRole(config.DB, "clinic_admin", "receptionist"), controllers.GetAvailableTimeSlots)
 		appointments.GET("/dashboard", middleware.RequireRole(config.DB, "clinic_admin", "receptionist", "doctor"), controllers.GetDashboardStats)
 		appointments.GET("/summary", middleware.RequireRole(config.DB, "clinic_admin", "receptionist", "doctor"), controllers.GetAppointmentSummary)
+		appointments.GET("/collections", middleware.RequireRole(config.DB, "clinic_admin", "receptionist", "doctor"), controllers.GetCollections)
 	}
 
 	checkins := rg.Group("/checkins")

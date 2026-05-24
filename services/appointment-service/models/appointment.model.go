@@ -27,6 +27,8 @@ type Appointment struct {
 	FeeAmount        *float64  `json:"fee_amount" db:"fee_amount"`
 	PaymentStatus    string    `json:"payment_status" db:"payment_status"`
 	PaymentMode      *string   `json:"payment_mode" db:"payment_mode"`
+	PaymentMethod    *string   `json:"payment_method" db:"payment_method"`
+	PaidAmount       *float64  `json:"paid_amount" db:"paid_amount"`
 	PaidAt           *time.Time `json:"paid_at" db:"paid_at"`
 	IsPriority       bool      `json:"is_priority" db:"is_priority"`
 	BookingMode      string    `json:"booking_mode" db:"booking_mode"`

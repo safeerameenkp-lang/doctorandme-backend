@@ -33,6 +33,8 @@ type AppointmentListItem struct {
 	FeeAmount           *float64 `json:"fee_amount"`
 	PaymentStatus       string   `json:"payment_status"`
 	PaymentMode         *string  `json:"payment_mode"`
+	PaymentMethod       *string  `json:"payment_method"`
+	PaidAmount          *float64 `json:"paid_amount"`
 	BookingNumber       string   `json:"booking_number"`
 	CreatedAt           string   `json:"created_at"`
 	DoctorImage         *string  `json:"doctor_image"`
@@ -67,7 +69,8 @@ func GetAppointmentList(c *gin.Context) {
                COALESCE(u.first_name, cp.first_name, 'Unknown') as patient_first_name, 
                COALESCE(u.last_name, cp.last_name, '') as patient_last_name,
                du.first_name as doctor_first_name, du.last_name as doctor_last_name,
-               dept.name as department_name, d.profile_image, a.clinic_patient_id
+               dept.name as department_name, d.profile_image, a.clinic_patient_id,
+               a.payment_method, a.paid_amount
         FROM appointments a
         LEFT JOIN patients p ON p.id = a.patient_id
         LEFT JOIN users u ON u.id = p.user_id
@@ -137,6 +140,7 @@ func GetAppointmentList(c *gin.Context) {
 			&appointment.Status, &appointment.FeeAmount, &appointment.PaymentStatus, &createdAt, &appointment.BookingMode,
 			&moID, &patientFirstName, &patientLastName,
 			&doctorFirstName, &doctorLastName, &departmentName, &doctorImage, &appointment.ClinicPatientID,
+			&appointment.PaymentMethod, &appointment.PaidAmount,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})

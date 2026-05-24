@@ -58,6 +58,8 @@ func GetSimpleAppointmentList(c *gin.Context) {
 			a.fee_amount,
 			a.payment_status,
 			a.payment_mode,
+			a.payment_method,
+			a.paid_amount,
 			a.booking_number,
 			a.booking_mode,
 			a.created_at
@@ -115,6 +117,8 @@ func GetSimpleAppointmentList(c *gin.Context) {
 			&apt.FeeAmount,
 			&apt.PaymentStatus,
 			&apt.PaymentMode,
+			&apt.PaymentMethod,
+			&apt.PaidAmount,
 			&apt.BookingNumber,
 			&apt.BookingMode,
 			&createdAt,
@@ -187,6 +191,8 @@ func GetSimpleAppointmentDetails(c *gin.Context) {
 			a.status,
 			a.fee_amount,
 			a.payment_status,
+			a.payment_method,
+			a.paid_amount,
 			a.booking_number,
 			a.booking_mode,
 			a.created_at
@@ -203,9 +209,9 @@ func GetSimpleAppointmentDetails(c *gin.Context) {
 		id, patientName, doctorName, status, bookingNumber, paymentStatus                   string
 		tokenNumeric                                                                        sql.NullInt64
 		displayToken, doctorPrefix                                                          sql.NullString
-		moID, patientNumber, clinicPatientID, department, consultationType, appointmentDate *string
+		moID, patientNumber, clinicPatientID, department, consultationType, appointmentDate, paymentMethod *string
 		appointmentTime, createdAt                                                          time.Time
-		feeAmount                                                                           *float64
+		feeAmount, paidAmount                                                               *float64
 		bookingMode                                                                         string
 	)
 
@@ -226,6 +232,8 @@ func GetSimpleAppointmentDetails(c *gin.Context) {
 		&status,
 		&feeAmount,
 		&paymentStatus,
+		&paymentMethod,
+		&paidAmount,
 		&bookingNumber,
 		&bookingMode,
 		&createdAt,
@@ -269,6 +277,8 @@ func GetSimpleAppointmentDetails(c *gin.Context) {
 			"status":                status,
 			"fee_amount":            feeAmount,
 			"payment_status":        paymentStatus,
+			"payment_method":        paymentMethod,
+			"paid_amount":           paidAmount,
 			"fee_status":            paymentStatus, // Business logic: same as payment_status
 			"booking_number":        bookingNumber,
 			"booking_mode":          bookingMode,
