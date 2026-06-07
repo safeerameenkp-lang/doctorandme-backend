@@ -7,12 +7,24 @@ import (
 	"os"
 	"time"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
 
 var DB *sql.DB
 
 func ConnectDB() {
+	if os.Getenv("APP_ENV") == "local" {
+		err := godotenv.Load(".env.local")
+		if err != nil {
+			err = godotenv.Load("../.env.local")
+			if err != nil {
+				_ = godotenv.Load("../../.env.local")
+			}
+		}
+		log.Println("Loaded .env.local configuration for local environment")
+	}
+
 	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		os.Getenv("DB_HOST"),
 		os.Getenv("DB_PORT"),
