@@ -1,0 +1,4 @@
+ALTER TABLE sales_schema.prescriptions 
+ADD COLUMN bill_amount DECIMAL(12,2) DEFAULT NULL,
+ADD COLUMN payment_method VARCHAR(20) DEFAULT NULL,
+ADD COLUMN handled_by_name VARCHAR(100) DEFAULT NULL;

@@ -133,6 +133,10 @@ services:
           - /api/clinic-specific-patients
           - /api/patients
           - /api/admin
+          - /api/pharmacies
+          - /api/clinic-pharmacy-links
+          - /api/pharmacy
+          - /dashboard
         strip_path: false
         preserve_host: true
         protocols:

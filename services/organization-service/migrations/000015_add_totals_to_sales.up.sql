@@ -1,0 +1,3 @@
+ALTER TABLE sales_schema.sales 
+ADD COLUMN total_discount DECIMAL(15, 2) NOT NULL DEFAULT 0,
+ADD COLUMN total_tax DECIMAL(15, 2) NOT NULL DEFAULT 0;

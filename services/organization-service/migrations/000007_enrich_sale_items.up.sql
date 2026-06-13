@@ -1,0 +1,7 @@
+ALTER TABLE sales_schema.sale_items
+ADD COLUMN mrp DECIMAL(15,2) DEFAULT 0,
+ADD COLUMN discount_percentage DECIMAL(5,2) DEFAULT 0,
+ADD COLUMN tax_percentage DECIMAL(5,2) DEFAULT 0,
+ADD COLUMN subtotal DECIMAL(15,2) DEFAULT 0,
+ADD COLUMN medicine_name VARCHAR(255),
+ADD COLUMN medicine_brand VARCHAR(255);

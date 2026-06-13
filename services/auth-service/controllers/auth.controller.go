@@ -241,7 +241,7 @@ func Login(c *gin.Context) {
 
 	// Fetch user roles with organization/clinic context
 	rows, err := config.DB.QueryContext(ctx, `
-        SELECT r.id, r.name, r.permissions, ur.organization_id, ur.clinic_id, ur.service_id
+        SELECT r.id, r.name, r.permissions, ur.organization_id, ur.clinic_id, ur.service_id, ur.pharmacy_id
         FROM roles r
         JOIN user_roles ur ON ur.role_id = r.id
         WHERE ur.user_id = $1 AND ur.is_active = true
@@ -252,14 +252,14 @@ func Login(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var topOrgID, topClinicID, topServiceID interface{}
+	var topOrgID, topClinicID, topServiceID, topPharmacyID interface{}
 	var roles []map[string]interface{}
 	for rows.Next() {
 		var roleID, roleName string
 		var permissionsJSON []byte
-		var orgID, clinicID, serviceID *string
+		var orgID, clinicID, serviceID, pharmacyID *string
 
-		err = rows.Scan(&roleID, &roleName, &permissionsJSON, &orgID, &clinicID, &serviceID)
+		err = rows.Scan(&roleID, &roleName, &permissionsJSON, &orgID, &clinicID, &serviceID, &pharmacyID)
 		if err != nil {
 			continue
 		}
@@ -273,6 +273,9 @@ func Login(c *gin.Context) {
 		}
 		if topServiceID == nil && serviceID != nil {
 			topServiceID = *serviceID
+		}
+		if topPharmacyID == nil && pharmacyID != nil {
+			topPharmacyID = *pharmacyID
 		}
 
 		var permissions map[string]interface{}
@@ -295,6 +298,9 @@ func Login(c *gin.Context) {
 		if serviceID != nil {
 			role["service_id"] = *serviceID
 		}
+		if pharmacyID != nil {
+			role["pharmacy_id"] = *pharmacyID
+		}
 
 		roles = append(roles, role)
 	}
@@ -314,6 +320,7 @@ func Login(c *gin.Context) {
 		"organizationId": topOrgID,
 		"clinicId":       topClinicID,
 		"serviceId":      topServiceID,
+		"pharmacyId":     topPharmacyID,
 		"roles":          roles,
 		"accessToken":    accessToken,
 		"refreshToken":   refreshToken,
@@ -409,7 +416,7 @@ func Refresh(c *gin.Context) {
 
 	// Fetch roles for refreshed user
 	rows, err := config.DB.QueryContext(ctx, `
-        SELECT r.id, r.name, r.permissions, ur.organization_id, ur.clinic_id, ur.service_id
+        SELECT r.id, r.name, r.permissions, ur.organization_id, ur.clinic_id, ur.service_id, ur.pharmacy_id
         FROM roles r
         JOIN user_roles ur ON ur.role_id = r.id
         WHERE ur.user_id = $1 AND ur.is_active = true
@@ -420,14 +427,14 @@ func Refresh(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var topOrgID, topClinicID, topServiceID interface{}
+	var topOrgID, topClinicID, topServiceID, topPharmacyID interface{}
 	var roles []map[string]interface{}
 	for rows.Next() {
 		var roleID, roleName string
 		var permissionsJSON []byte
-		var orgID, clinicID, serviceID *string
+		var orgID, clinicID, serviceID, pharmacyID *string
 
-		err = rows.Scan(&roleID, &roleName, &permissionsJSON, &orgID, &clinicID, &serviceID)
+		err = rows.Scan(&roleID, &roleName, &permissionsJSON, &orgID, &clinicID, &serviceID, &pharmacyID)
 		if err != nil {
 			continue
 		}
@@ -441,6 +448,9 @@ func Refresh(c *gin.Context) {
 		}
 		if topServiceID == nil && serviceID != nil {
 			topServiceID = *serviceID
+		}
+		if topPharmacyID == nil && pharmacyID != nil {
+			topPharmacyID = *pharmacyID
 		}
 
 		var permissions map[string]interface{}
@@ -463,6 +473,9 @@ func Refresh(c *gin.Context) {
 		if serviceID != nil {
 			role["service_id"] = *serviceID
 		}
+		if pharmacyID != nil {
+			role["pharmacy_id"] = *pharmacyID
+		}
 
 		roles = append(roles, role)
 	}
@@ -482,6 +495,7 @@ func Refresh(c *gin.Context) {
 		"organizationId": topOrgID,
 		"clinicId":       topClinicID,
 		"serviceId":      topServiceID,
+		"pharmacyId":     topPharmacyID,
 		"roles":          roles,
 		"accessToken":    newAccessToken,
 		"refreshToken":   newRefreshToken,

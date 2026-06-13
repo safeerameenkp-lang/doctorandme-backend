@@ -132,3 +132,61 @@ func GenerateDoctorCode(ctx context.Context, tx *sql.Tx, db *sql.DB, firstName, 
 
 	return fmt.Sprintf("%s%03d", prefix, maxNumber+1), nil
 }
+
+// GeneratePharmacyCode retrieves an incremental pharmacy code based on the pharmacy name using DB transaction locks
+func GeneratePharmacyCode(ctx context.Context, tx *sql.Tx, db *sql.DB, name string) (string, error) {
+	// Extract first letter of each word (Uppercase)
+	words := strings.Fields(name)
+	prefix := ""
+	reg, _ := regexp.Compile("[^a-zA-Z0-9]+")
+
+	for _, word := range words {
+		cleanWord := reg.ReplaceAllString(word, "")
+		if len(cleanWord) > 0 {
+			prefix += string(cleanWord[0])
+		}
+	}
+	prefix = strings.ToUpper(prefix)
+
+	// Ensure prefix length rules
+	if len(prefix) == 0 {
+		return "", errors.New("cannot generate pharmacy code from given name")
+	}
+
+	// 1. Transactional Postgres Advisory Lock for High Concurrency (1000+ req/sec)
+	// Hash prefix to 64-bit int for locking specifically this prefix globally
+	h := fnv.New64a()
+	h.Write([]byte("PHARMACY_" + prefix))
+	lockID := int64(h.Sum64() & 0x7FFFFFFFFFFFFFFF) // Safe positive bounds for PG
+
+	if tx != nil {
+		_, _ = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, lockID)
+	}
+
+	// 2. Fetch the highest suffix mapped
+	var maxNumber int
+	query := `
+		SELECT COALESCE(MAX(
+			CASE 
+				WHEN pharmacy_code ~ ('^' || $1 || '[0-9]+$') 
+				THEN CAST(SUBSTRING(pharmacy_code FROM LENGTH($1) + 1) AS INTEGER)
+				ELSE 0
+			END
+		), 0) as max_num
+		FROM pharmacies 
+	`
+
+	var err error
+	if tx != nil {
+		err = tx.QueryRowContext(ctx, query, prefix).Scan(&maxNumber)
+	} else {
+		// If tx is nil, advisory lock cannot be maintained across boundaries
+		err = db.QueryRowContext(ctx, query, prefix).Scan(&maxNumber)
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s%03d", prefix, maxNumber+1), nil
+}

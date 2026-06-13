@@ -47,6 +47,23 @@ type Clinic struct {
 	CreatedAt      time.Time `json:"created_at" db:"created_at"`
 }
 
+type Pharmacy struct {
+	ID             string    `json:"id" db:"id"`
+	OrganizationID string    `json:"organization_id" db:"organization_id"`
+	ClinicID       *string   `json:"clinic_id" db:"clinic_id"`
+	PharmacyCode   string    `json:"pharmacy_code" db:"pharmacy_code"`
+	Name           string    `json:"name" db:"name"`
+	PharmacyType   string    `json:"pharmacy_type" db:"pharmacy_type"`
+	Email          *string   `json:"email" db:"email"`
+	Phone          *string   `json:"phone" db:"phone"`
+	Address        *string   `json:"address" db:"address"`
+	LicenseNumber  *string   `json:"license_number" db:"license_number"`
+	Logo           *string   `json:"logo" db:"logo"`
+	IsActive       bool      `json:"is_active" db:"is_active"`
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
+}
+
 type ExternalService struct {
 	ID            string    `json:"id" db:"id"`
 	ServiceCode   string    `json:"service_code" db:"service_code"`
@@ -413,4 +430,13 @@ type DoctorTimeSlot struct {
 	IsActive    bool      `json:"is_active" db:"is_active"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+}
+
+type ClinicPharmacyLink struct {
+	ID         string    `json:"id" db:"id"`
+	ClinicID   string    `json:"clinic_id" db:"clinic_id"`
+	PharmacyID string    `json:"pharmacy_id" db:"pharmacy_id"`
+	IsActive   bool      `json:"is_active" db:"is_active"`
+	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
 }

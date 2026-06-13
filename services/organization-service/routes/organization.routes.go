@@ -4,14 +4,51 @@ import (
 	"organization-service/config"
 	"organization-service/controllers"
 	"organization-service/internal/patient"
+	"organization-service/internal/pharmacy/inventory/batches"
+	"organization-service/internal/pharmacy/inventory/ledger"
+	"organization-service/internal/pharmacy/inventory/medicines"
+	"organization-service/internal/pharmacy/inventory/reservations"
+	"organization-service/internal/pharmacy/inventory/stockin"
+	"organization-service/internal/pharmacy/inventory/stockouts"
+	"organization-service/internal/pharmacy/sales/prescriptions"
+	"organization-service/internal/pharmacy/sales/sales"
+	"organization-service/internal/pharmacy/notification"
+	"organization-service/internal/pharmacy/supplier"
+	"organization-service/internal/pharmacy/dashboard"
 	"organization-service/middleware"
 
 	"github.com/gin-gonic/gin"
 )
 
-func OrganizationRoutes(rg *gin.RouterGroup, patientHandler *patient.PatientHandler) {
+type InventoryHandlers struct {
+	Meds     *medicines.Handler
+	Batches  *batches.Handler
+	Ledger   *ledger.Handler
+	StockIn  *stockin.Handler
+	StockOut *stockouts.Handler
+	Res      *reservations.Handler
+}
+
+type SalesHandlers struct {
+	Sales *sales.Handler
+	Rx    *prescriptions.Handler
+}
+
+type SupplierHandlers struct {
+	Supplier *supplier.SupplierHandler
+}
+
+type NotificationHandlers struct {
+	Notification *notification.NotificationHandler
+}
+
+func OrganizationRoutes(rg *gin.RouterGroup, patientHandler *patient.PatientHandler, inventoryHandlers InventoryHandlers, salesHandlers SalesHandlers, supplierHandlers SupplierHandlers, notificationHandlers NotificationHandlers) {
 	// Health check endpoint (no auth required)
 	rg.GET("/health", controllers.HealthCheck)
+	rg.GET("/pharmacy/inventory/health", controllers.HealthCheck)
+	rg.GET("/pharmacy/sales/health", controllers.HealthCheck)
+	rg.GET("/pharmacy/supplier/health", controllers.HealthCheck)
+	rg.GET("/pharmacy/notification/health", controllers.HealthCheck)
 	// Serve static uploads (public access for logos)
 	// accessible at /api/organizations/uploads/...
 	rg.Static("/uploads", "./uploads")
@@ -41,6 +78,18 @@ func OrganizationRoutes(rg *gin.RouterGroup, patientHandler *patient.PatientHand
 		// Get doctors by clinic
 		clinics.GET("/:id/doctors", controllers.GetDoctorsByClinic)
 	}
+
+	// Pharmacies
+	pharmacies := rg.Group("/pharmacies")
+	{
+		pharmacies.POST("", middleware.RequireRole(config.DB, "super_admin", "organization_admin"), controllers.CreatePharmacy)
+		pharmacies.POST("/with-admin", middleware.RequireRole(config.DB, "super_admin", "organization_admin"), controllers.CreatePharmacyWithAdmin)
+		pharmacies.GET("", controllers.GetPharmacies)
+		pharmacies.GET("/:id", controllers.GetPharmacy)
+		pharmacies.PUT("/:id", middleware.RequireRole(config.DB, "super_admin", "organization_admin", "pharmacy_admin"), controllers.UpdatePharmacy)
+		pharmacies.DELETE("/:id", middleware.RequireRole(config.DB, "super_admin", "organization_admin"), controllers.DeletePharmacy)
+	}
+
 
 	// Doctor Management
 	doctors := rg.Group("/doctors")
@@ -130,6 +179,15 @@ func OrganizationRoutes(rg *gin.RouterGroup, patientHandler *patient.PatientHand
 		links.PUT("/:id", middleware.RequireRole(config.DB, "super_admin", "clinic_admin"), controllers.UpdateClinicDoctorLink)
 		links.DELETE("/:id", middleware.RequireRole(config.DB, "clinic_admin"), controllers.DeleteClinicDoctorLink)
 	}
+
+	// Clinic Pharmacy Links (approval-based relation framework between clinics and pharmacies)
+	cpLinks := rg.Group("/clinic-pharmacy-links")
+	{
+		cpLinks.POST("", middleware.RequireRole(config.DB, "super_admin", "organization_admin", "clinic_admin", "pharmacy_admin"), controllers.CreateClinicPharmacyLink)
+		cpLinks.GET("", controllers.GetClinicPharmacyLinks)
+		cpLinks.DELETE("/:id", middleware.RequireRole(config.DB, "super_admin", "organization_admin", "clinic_admin", "pharmacy_admin"), controllers.DeleteClinicPharmacyLink)
+	}
+
 
 	// Doctor Schedule Management
 	schedules := rg.Group("/doctor-schedules")
@@ -326,4 +384,121 @@ func OrganizationRoutes(rg *gin.RouterGroup, patientHandler *patient.PatientHand
 	}
 
 	// Follow-up status is now integrated into GetClinicPatient endpoint
+
+	// Pharmacy Inventory - Medicines
+	meds := rg.Group("/pharmacy/inventory/medicines")
+	{
+		meds.POST("", inventoryHandlers.Meds.Create)
+		meds.GET("", inventoryHandlers.Meds.GetAll)
+		meds.GET("/stats", inventoryHandlers.Meds.GetStats)
+		meds.GET("/:id", inventoryHandlers.Meds.GetOne)
+		meds.PUT("/:id", inventoryHandlers.Meds.Update)
+		meds.GET("/:id/history", inventoryHandlers.Meds.GetHistory)
+	}
+
+	// Pharmacy Inventory - Batches
+	b := rg.Group("/pharmacy/inventory/batches")
+	{
+		b.GET("", inventoryHandlers.Batches.List)
+		b.GET("/sellable", inventoryHandlers.Batches.ListSellable)
+		b.GET("/stats", inventoryHandlers.Batches.GetStats)
+		b.POST("/return", inventoryHandlers.Batches.ProcessReturn)
+		b.GET("/:id/history", inventoryHandlers.Batches.GetHistory)
+		b.PUT("/:id", inventoryHandlers.Batches.Update)
+	}
+
+	// Pharmacy Inventory - Ledger
+	l := rg.Group("/pharmacy/inventory/ledger")
+	{
+		l.GET("/batch/:batchId", inventoryHandlers.Ledger.GetByBatch)
+		l.GET("/medicine/:medicineId", inventoryHandlers.Ledger.GetByMedicine)
+	}
+
+	// Pharmacy Inventory - Stock In
+	si := rg.Group("/pharmacy/inventory/stock-in")
+	{
+		si.POST("", inventoryHandlers.StockIn.Create)
+		si.GET("", inventoryHandlers.StockIn.List)
+		si.GET("/stats", inventoryHandlers.StockIn.GetStats)
+		si.GET("/:id", inventoryHandlers.StockIn.GetByID)
+		si.GET("/:id/history", inventoryHandlers.StockIn.GetHistory)
+	}
+
+	// Pharmacy Inventory - Stock Out
+	so := rg.Group("/pharmacy/inventory/stock-out")
+	{
+		so.POST("", inventoryHandlers.StockOut.Create)
+		so.GET("", inventoryHandlers.StockOut.List)
+		so.GET("/stats", inventoryHandlers.StockOut.GetStats)
+		so.GET("/:id", inventoryHandlers.StockOut.GetByID)
+		so.GET("/:id/history", inventoryHandlers.StockOut.GetHistory)
+	}
+
+	// Pharmacy Inventory - Reservations
+	resGroup := rg.Group("/pharmacy/inventory/reservations")
+	{
+		resGroup.POST("", inventoryHandlers.Res.Create)
+		resGroup.PUT("/:id", inventoryHandlers.Res.Update)
+		resGroup.POST("/:id/confirm", inventoryHandlers.Res.Confirm)
+		resGroup.POST("/:id/cancel", inventoryHandlers.Res.Cancel)
+	}
+
+	// Pharmacy Sales - Main
+	sGroup := rg.Group("/pharmacy/sales")
+	{
+		sGroup.GET("/stats", salesHandlers.Sales.GetStats)
+		sGroup.GET("/reports/recurring-refills", salesHandlers.Sales.GetRecurringRefillsReport)
+		sGroup.GET("/patients/stats", salesHandlers.Sales.GetPatientStats)
+		sGroup.GET("/patients", salesHandlers.Sales.ListPatients)
+		sGroup.GET("/patients/search", salesHandlers.Sales.SearchPatients)
+		sGroup.GET("/patients/:id", salesHandlers.Sales.GetPatientByID)
+		sGroup.GET("/patients/:id/sales", salesHandlers.Sales.GetPatientSales)
+		sGroup.GET("/patients/:id/returns", salesHandlers.Sales.GetPatientReturns)
+		sGroup.GET("", salesHandlers.Sales.ListSales)
+		sGroup.GET("/:id", salesHandlers.Sales.GetSale)
+		sGroup.POST("/draft/:rxId", salesHandlers.Sales.CreateDraft)
+		sGroup.POST("/walk-in", salesHandlers.Sales.CreateWalkInDraft)
+		sGroup.POST("/:id/items", salesHandlers.Sales.AddItem)
+		sGroup.PUT("/:id/items/:itemId", salesHandlers.Sales.UpdateItem)
+		sGroup.DELETE("/:id/items/:itemId", salesHandlers.Sales.RemoveItem)
+		sGroup.POST("/:id/finalize", salesHandlers.Sales.FinalizeSale)
+		sGroup.POST("/:id/dispatch", salesHandlers.Sales.DispatchSale)
+	}
+
+	// Pharmacy Sales - Returns
+	rGroup := rg.Group("/pharmacy/sales/returns")
+	{
+		rGroup.POST("", salesHandlers.Sales.ProcessReturn)
+		rGroup.GET("", salesHandlers.Sales.ListReturns)
+		rGroup.GET("/:id", salesHandlers.Sales.GetReturn)
+	}
+
+	// Pharmacy Sales - Prescriptions
+	rxGroup := rg.Group("/pharmacy/sales/prescriptions")
+	{
+		rxGroup.GET("", salesHandlers.Rx.List)
+		rxGroup.GET("/:id", salesHandlers.Rx.Get)
+		rxGroup.POST("", salesHandlers.Rx.Create)
+	}
+
+	// Pharmacy Supplier
+	supGroup := rg.Group("/pharmacy/supplier")
+	{
+		supGroup.POST("", supplierHandlers.Supplier.Create)
+		supGroup.GET("/stats", supplierHandlers.Supplier.GetStats)
+		supGroup.GET("", supplierHandlers.Supplier.GetAll)
+		supGroup.GET("/:id", supplierHandlers.Supplier.GetOne)
+		supGroup.PUT("/:id", supplierHandlers.Supplier.Update)
+		supGroup.GET("/:id/history", supplierHandlers.Supplier.GetHistory)
+	}
+
+	// Pharmacy Notification
+	notifGroup := rg.Group("/pharmacy/notification")
+	{
+		notifGroup.POST("/send", notificationHandlers.Notification.SendNotification)
+	}
+
+	// Pharmacy Dashboard
+	dashHandler := dashboard.NewHandler()
+	rg.GET("/pharmacy/dashboard/summary", dashHandler.GetSummary)
 }

@@ -11,14 +11,14 @@ services:
     container_name: postgres-local
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: myapp
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: pharmacy
     ports:
-      - "5435:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d myapp"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pharmacy"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -35,6 +35,9 @@ services:
       dockerfile: services/auth-service/Dockerfile
     env_file:
       - .env.local
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
     volumes:
       - ./services/auth-service/migrations:/migrations:ro
     entrypoint: [ "sh", "/migrations/run-migrations.sh" ]
@@ -50,6 +53,9 @@ services:
       dockerfile: services/organization-service/Dockerfile
     env_file:
       - .env.local
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
     volumes:
       - ./services/organization-service/migrations:/migrations:ro
     entrypoint: [ "sh", "/migrations/run-migrations.sh" ]
@@ -65,6 +71,9 @@ services:
       dockerfile: services/appointment-service/Dockerfile
     env_file:
       - .env.local
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
     volumes:
       - ./services/appointment-service/migrations:/migrations:ro
     entrypoint: [ "sh", "/migrations/run-migrations.sh" ]
@@ -86,6 +95,8 @@ services:
       - .env.local
     environment:
       PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
     depends_on:
       auth-migrations:
         condition: service_completed_successfully
@@ -102,6 +113,8 @@ services:
       - .env.local
     environment:
       PORT: 8081
+      DB_HOST: postgres
+      DB_PORT: 5432
     volumes:
       - ./services/organization-service/uploads:/root/uploads
     depends_on:
@@ -120,6 +133,8 @@ services:
       - .env.local
     environment:
       PORT: 8082
+      DB_HOST: postgres
+      DB_PORT: 5432
     depends_on:
       appointment-migrations:
         condition: service_completed_successfully

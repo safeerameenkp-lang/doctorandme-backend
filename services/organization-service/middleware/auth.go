@@ -14,6 +14,33 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+type contextKey string
+
+const (
+	PharmacyIDKey contextKey = "pharmacy_id"
+	UserIDKey     contextKey = "user_id"
+	UserNameKey   contextKey = "user_name"
+	RoleKey       contextKey = "role"
+	RawTokenKey   contextKey = "raw_token"
+)
+
+func GetPharmacyInfo(ctx context.Context) string {
+	pid, _ := ctx.Value(PharmacyIDKey).(string)
+	return pid
+}
+
+func GetUserInfo(ctx context.Context) (userID string, userName string, role string) {
+	uid, _ := ctx.Value(UserIDKey).(string)
+	name, _ := ctx.Value(UserNameKey).(string)
+	role, _ = ctx.Value(RoleKey).(string)
+	return uid, name, role
+}
+
+func GetRawToken(ctx context.Context) string {
+	token, _ := ctx.Value(RawTokenKey).(string)
+	return token
+}
+
 var (
 	jwtSecret  string
 	secretOnce sync.Once
@@ -119,14 +146,32 @@ func AuthMiddleware(db Database) gin.HandlerFunc {
 
 		userID, ok := claims["sub"].(string)
 		if !ok {
-			SendError(c, http.StatusUnauthorized, CodeInvalidUserInfo, "Invalid user information",
-				"The token does not contain valid user information. Please login again", nil)
-			c.Abort()
-			return
+			if uid, ok2 := claims["user_id"].(string); ok2 {
+				userID = uid
+			} else {
+				SendError(c, http.StatusUnauthorized, CodeInvalidUserInfo, "Invalid user information",
+					"The token does not contain valid user information. Please login again", nil)
+				c.Abort()
+				return
+			}
 		}
 
-		// ✅ Extract Patient scope isolated context directly from headers (assuming token format provides standard mappings)
+		// Inject pharmacy claims into Request Context (and Gin context)
+		ctx := c.Request.Context()
+		ctx = context.WithValue(ctx, RawTokenKey, tokenStr)
+		ctx = context.WithValue(ctx, UserIDKey, userID)
+		c.Set("user_id", userID)
+
+		if userName, ok := claims["user_name"].(string); ok && userName != "" {
+			ctx = context.WithValue(ctx, UserNameKey, userName)
+			c.Set("user_name", userName)
+		}
 		roleClaim, _ := claims["role"].(string)
+		if roleClaim != "" {
+			ctx = context.WithValue(ctx, RoleKey, roleClaim)
+			c.Set("role", roleClaim)
+		}
+		c.Request = c.Request.WithContext(ctx)
 
 		// Set shared claims if present
 		if clinicID, ok := claims["clinic_id"].(string); ok && clinicID != "" {
@@ -150,8 +195,13 @@ func AuthMiddleware(db Database) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 		defer cancel()
 
-		var exists bool
-		err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND is_active=true)`, userID).Scan(&exists)
+		rows, err := db.QueryContext(ctx, `
+			SELECT u.is_active, r.name, ur.clinic_id, ur.pharmacy_id, ur.organization_id
+			FROM users u
+			LEFT JOIN user_roles ur ON ur.user_id = u.id AND ur.is_active = true
+			LEFT JOIN roles r ON ur.role_id = r.id
+			WHERE u.id = $1
+		`, userID)
 		if err != nil {
 			if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				SendError(c, http.StatusInternalServerError, CodeAuthVerificationError, "Authentication verification failed",
@@ -163,14 +213,90 @@ func AuthMiddleware(db Database) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if !exists {
-			SendError(c, http.StatusUnauthorized, CodeUserNotFoundOrInactive, "User account not found or inactive",
-				"Your account is not found or has been deactivated. Please contact support", nil)
+		defer rows.Close()
+
+		userExists := false
+		isActive := false
+		roles := make([]string, 0)
+		clinicIDs := make([]string, 0)
+		pharmacyIDs := make([]string, 0)
+		orgIDs := make([]string, 0)
+
+		rolesMap := make(map[string]bool)
+		clinicIDsMap := make(map[string]bool)
+		pharmacyIDsMap := make(map[string]bool)
+		orgIDsMap := make(map[string]bool)
+
+		for rows.Next() {
+			userExists = true
+			var userActive bool
+			var roleName, clinicID, pharmacyID, orgID *string
+
+			if err := rows.Scan(&userActive, &roleName, &clinicID, &pharmacyID, &orgID); err != nil {
+				continue
+			}
+			isActive = userActive
+
+			if roleName != nil && !rolesMap[*roleName] {
+				rolesMap[*roleName] = true
+				roles = append(roles, *roleName)
+			}
+			if clinicID != nil && !clinicIDsMap[*clinicID] {
+				clinicIDsMap[*clinicID] = true
+				clinicIDs = append(clinicIDs, *clinicID)
+			}
+			if pharmacyID != nil && !pharmacyIDsMap[*pharmacyID] {
+				pharmacyIDsMap[*pharmacyID] = true
+				pharmacyIDs = append(pharmacyIDs, *pharmacyID)
+			}
+			if orgID != nil && !orgIDsMap[*orgID] {
+				orgIDsMap[*orgID] = true
+				orgIDs = append(orgIDs, *orgID)
+			}
+		}
+
+		if !userExists {
+			SendError(c, http.StatusUnauthorized, CodeUserNotFoundOrInactive, "User account not found",
+				"Your account is not found. Please contact support", nil)
 			c.Abort()
 			return
 		}
 
+		if !isActive {
+			SendError(c, http.StatusUnauthorized, CodeUserNotFoundOrInactive, "User account inactive",
+				"Your account is deactivated. Please contact support", nil)
+			c.Abort()
+			return
+		}
+
+		// Inject into Gin Context
 		c.Set("user_id", userID)
+		c.Set("user_roles", roles)
+		if len(orgIDs) > 0 {
+			c.Set("organization_ids", orgIDs)
+			if c.GetString("organization_id") == "" {
+				c.Set("organization_id", orgIDs[0])
+			}
+		}
+		if len(clinicIDs) > 0 {
+			c.Set("clinic_ids", clinicIDs)
+			if c.GetString("clinic_id") == "" {
+				c.Set("clinic_id", clinicIDs[0])
+			}
+		}
+		if len(pharmacyIDs) > 0 {
+			c.Set("pharmacy_ids", pharmacyIDs)
+			activePharmacyID := pharmacyIDs[0]
+			if c.GetString("pharmacy_id") == "" {
+				c.Set("pharmacy_id", activePharmacyID)
+			}
+
+			// Context Bridge: Inject pharmacy_id & tenant_id values into request context for compatibility
+
+			reqCtx := c.Request.Context()
+			reqCtx = context.WithValue(reqCtx, PharmacyIDKey, activePharmacyID)
+			c.Request = c.Request.WithContext(reqCtx)
+		}
 		c.Next()
 	}
 }
@@ -187,7 +313,7 @@ func RequireRole(db Database, expectedRoles ...string) gin.HandlerFunc {
 			return
 		}
 
-		// Check if we already have context roles pre-loaded (i.e. patient JWTs)
+		// Check if we already have context roles pre-loaded (i.e. patient JWTs or AuthMiddleware)
 		rolesContext := c.GetStringSlice("user_roles")
 		var roles []string
 
@@ -199,7 +325,7 @@ func RequireRole(db Database, expectedRoles ...string) gin.HandlerFunc {
 			defer cancel()
 
 			rows, err := db.QueryContext(ctx, `
-				SELECT r.name, ur.clinic_id
+				SELECT r.name, ur.clinic_id, ur.pharmacy_id
 				FROM roles r
 				JOIN user_roles ur ON ur.role_id = r.id
 				WHERE ur.user_id = $1 AND ur.is_active = true
@@ -215,15 +341,19 @@ func RequireRole(db Database, expectedRoles ...string) gin.HandlerFunc {
 			defer rows.Close()
 			roles = make([]string, 0, 4)
 			clinicIDs := make([]string, 0, 4)
+			pharmacyIDs := make([]string, 0, 4)
 			for rows.Next() {
 				var role string
-				var clinicID sql.NullString
-				if err := rows.Scan(&role, &clinicID); err != nil {
+				var clinicID, pharmacyID sql.NullString
+				if err := rows.Scan(&role, &clinicID, &pharmacyID); err != nil {
 					continue
 				}
 				roles = append(roles, role)
 				if clinicID.Valid {
 					clinicIDs = append(clinicIDs, clinicID.String)
+				}
+				if pharmacyID.Valid {
+					pharmacyIDs = append(pharmacyIDs, pharmacyID.String)
 				}
 			}
 
@@ -234,6 +364,28 @@ func RequireRole(db Database, expectedRoles ...string) gin.HandlerFunc {
 				if c.GetString("clinic_id") == "" {
 					c.Set("clinic_id", clinicIDs[0])
 				}
+			}
+			if len(pharmacyIDs) > 0 {
+				c.Set("pharmacy_ids", pharmacyIDs)
+				if c.GetString("pharmacy_id") == "" {
+					c.Set("pharmacy_id", pharmacyIDs[0])
+				}
+			}
+		}
+
+		// Context Bridge: Inject pharmacy_id & tenant_id values into request context for compatibility if not set
+		pharmacyIDs := c.GetStringSlice("pharmacy_ids")
+		if len(pharmacyIDs) > 0 {
+			activePharmacyID := pharmacyIDs[0]
+			if c.GetString("pharmacy_id") == "" {
+				c.Set("pharmacy_id", activePharmacyID)
+			}
+
+			reqCtx := c.Request.Context()
+			if reqCtx.Value(PharmacyIDKey) == nil {
+
+				reqCtx = context.WithValue(reqCtx, PharmacyIDKey, activePharmacyID)
+				c.Request = c.Request.WithContext(reqCtx)
 			}
 		}
 
@@ -335,4 +487,65 @@ func SendNotFoundError(c *gin.Context, resource string) {
 func SendDatabaseError(c *gin.Context, message string) {
 	SendError(c, http.StatusInternalServerError, CodeDatabaseError, "Database error",
 		message, nil)
+}
+
+// RequirePharmacyAdmin middleware ensures user is admin of the specified pharmacy
+func RequirePharmacyAdmin(db Database) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			SendError(c, http.StatusUnauthorized, CodeMissingToken, "User not authenticated",
+				"User authentication is required to access this resource", nil)
+			c.Abort()
+			return
+		}
+
+		// Check if user is super_admin
+		isSuperAdmin := c.GetBool("is_super_admin")
+		if isSuperAdmin {
+			c.Set("is_super_admin", true)
+			c.Set("is_organization_admin", false)
+			c.Set("is_clinic_admin", false)
+			c.Set("is_pharmacy_admin", false)
+			c.Next()
+			return
+		}
+
+		// Check if user is pharmacy_admin and get their pharmacies
+		rolesIntf, _ := c.Get("user_roles")
+		roles := rolesIntf.([]string)
+		isPharmacyAdmin := false
+		for _, r := range roles {
+			if r == "pharmacy_admin" {
+				isPharmacyAdmin = true
+				break
+			}
+		}
+
+		if !isPharmacyAdmin {
+			SendError(c, http.StatusForbidden, CodeInsufficientPermissions, "Insufficient permissions",
+				"Access denied. This resource requires pharmacy_admin or super_admin role",
+				gin.H{"required_roles": []string{"pharmacy_admin", "super_admin"}})
+			c.Abort()
+			return
+		}
+
+		// Get user's pharmacy context
+		pharmacyIDsIntf, _ := c.Get("pharmacy_ids")
+		pharmacyIDs := pharmacyIDsIntf.([]string)
+
+		if len(pharmacyIDs) == 0 {
+			SendError(c, http.StatusForbidden, CodeInsufficientPermissions, "No pharmacy access",
+				"You are not assigned to any pharmacy", nil)
+			c.Abort()
+			return
+		}
+
+		c.Set("is_super_admin", false)
+		c.Set("is_organization_admin", false)
+		c.Set("is_clinic_admin", false)
+		c.Set("is_pharmacy_admin", true)
+		c.Set("pharmacy_ids", pharmacyIDs)
+		c.Next()
+	}
 }
