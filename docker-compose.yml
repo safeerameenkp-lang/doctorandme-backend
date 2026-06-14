@@ -15,8 +15,7 @@ services:
     volumes:
       - ./services/auth-service/migrations:/migrations:ro
     entrypoint: [ "sh", "/migrations/run-migrations.sh" ]
-    networks:
-      - doctorandme-network
+    network_mode: host
 
   organization-migrations:
     build:
@@ -27,8 +26,7 @@ services:
     volumes:
       - ./services/organization-service/migrations:/migrations:ro
     entrypoint: [ "sh", "/migrations/run-migrations.sh" ]
-    networks:
-      - doctorandme-network
+    network_mode: host
     depends_on:
       auth-migrations:
         condition: service_completed_successfully
@@ -42,8 +40,7 @@ services:
     volumes:
       - ./services/appointment-service/migrations:/migrations:ro
     entrypoint: [ "sh", "/migrations/run-migrations.sh" ]
-    networks:
-      - doctorandme-network
+    network_mode: host
     depends_on:
       organization-migrations:
         condition: service_completed_successfully
@@ -166,5 +163,3 @@ networks:
     ipam:
       config:
         - subnet: 192.168.100.0/24
-    driver_opts:
-      com.docker.network.driver.mtu: 1400
