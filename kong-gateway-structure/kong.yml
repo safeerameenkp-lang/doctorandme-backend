@@ -4,7 +4,7 @@ _transform: true
 services:
   # 1. Auth Service
   - name: auth-service
-    url: http://auth-service:8080
+    url: http://127.0.0.1:8080
     routes:
       - name: auth-routes
         paths:
@@ -23,7 +23,7 @@ services:
 
   # 2. Organization Service
   - name: organization-service
-    url: http://organization-service:8081
+    url: http://127.0.0.1:8081
     routes:
       - name: organization-routes
         paths:
@@ -62,7 +62,7 @@ services:
 
   # 3. Appointment Service
   - name: appointment-service
-    url: http://appointment-service:8082
+    url: http://127.0.0.1:8082
     routes:
       - name: appointment-routes
         paths:
@@ -81,7 +81,7 @@ services:
 
   # 4. Uploads
   - name: uploads-service
-    url: http://organization-service:8081
+    url: http://127.0.0.1:8081
     routes:
       - name: uploads-route
         paths:
@@ -100,7 +100,7 @@ services:
 
   # 5. Global Health Check (Mapped to Auth Service Health)
   - name: global-health-service
-    url: http://auth-service:8080/api/auth/health
+    url: http://127.0.0.1:8080/api/auth/health
     routes:
       - name: global-health-route
         paths:
@@ -110,7 +110,7 @@ services:
 
   # 6. Gateway Landing Page (Internal)
   - name: gateway-root
-    url: http://auth-service:8080
+    url: http://127.0.0.1:8080
     routes:
       - name: root-landing
         paths:

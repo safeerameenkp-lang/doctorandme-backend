@@ -61,8 +61,7 @@ services:
       auth-migrations:
         condition: service_completed_successfully
     restart: unless-stopped
-    networks:
-      - doctorandme-network
+    network_mode: host
 
   organization-service:
     container_name: organization-service
@@ -79,8 +78,7 @@ services:
       organization-migrations:
         condition: service_completed_successfully
     restart: unless-stopped
-    networks:
-      - doctorandme-network
+    network_mode: host
 
   appointment-service:
     container_name: appointment-service
@@ -95,8 +93,7 @@ services:
       appointment-migrations:
         condition: service_completed_successfully
     restart: unless-stopped
-    networks:
-      - doctorandme-network
+    network_mode: host
 
   # ----------------------
   # Kong API Gateway Configuration
@@ -111,15 +108,10 @@ services:
       KONG_ADMIN_ACCESS_LOG: /dev/stdout
       KONG_PROXY_ERROR_LOG: /dev/stderr
       KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
       KONG_PLUGINS: bundled,correlation-id
       KONG_NGINX_DAEMON: "off"
-    ports:
-      - "8000:8000"
-    links:
-      - auth-service
-      - organization-service
-      - appointment-service
     depends_on:
       auth-service:
         condition: service_started
@@ -127,11 +119,10 @@ services:
         condition: service_started
       appointment-service:
         condition: service_started
-    networks:
-      - doctorandme-network
     volumes:
       - ./kong-gateway-structure/kong.yml:/kong/kong.yml:ro
     restart: unless-stopped
+    network_mode: host
 
   # ----------------------
   # PgAdmin
