@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -131,7 +132,12 @@ func Register(c *gin.Context) {
 		_, _ = tx.ExecContext(ctx, `INSERT INTO user_roles (user_id, role_id) VALUES ($1,$2)`, userID, roleID)
 	}
 
-	accessToken, err := middleware.SignAccessToken(userID)
+	userName := strings.TrimSpace(input.FirstName + " " + input.LastName)
+	if userName == "" {
+		userName = input.Username
+	}
+
+	accessToken, err := middleware.SignAccessToken(userID, userName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate access token"})
 		return
@@ -220,7 +226,12 @@ func Login(c *gin.Context) {
 	}(user.ID)
 
 	// Generate tokens
-	accessToken, err := middleware.SignAccessToken(user.ID)
+	userName := strings.TrimSpace(user.FirstName + " " + user.LastName)
+	if userName == "" {
+		userName = user.Username
+	}
+
+	accessToken, err := middleware.SignAccessToken(user.ID, userName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate access token"})
 		return
@@ -377,8 +388,25 @@ func Refresh(c *gin.Context) {
 		return
 	}
 
+	// Fetch user details
+	var user models.User
+	err = tx.QueryRowContext(ctx, `
+        SELECT id, first_name, last_name, email, username, phone
+        FROM users
+        WHERE id = $1 AND is_active = true
+    `, userID).Scan(&user.ID, &user.FirstName, &user.LastName, &user.Email, &user.Username, &user.Phone)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	userName := strings.TrimSpace(user.FirstName + " " + user.LastName)
+	if userName == "" {
+		userName = user.Username
+	}
+
 	// Generate new tokens
-	newAccessToken, err := middleware.SignAccessToken(userID)
+	newAccessToken, err := middleware.SignAccessToken(userID, userName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate access token"})
 		return
@@ -394,18 +422,6 @@ func Refresh(c *gin.Context) {
 	_, err = tx.ExecContext(ctx, `INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1,$2,$3)`, userID, newRefreshToken, expiresAt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store refresh token"})
-		return
-	}
-
-	// Fetch user details
-	var user models.User
-	err = tx.QueryRowContext(ctx, `
-        SELECT id, first_name, last_name, email, username, phone
-        FROM users
-        WHERE id = $1 AND is_active = true
-    `, userID).Scan(&user.ID, &user.FirstName, &user.LastName, &user.Email, &user.Username, &user.Phone)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 

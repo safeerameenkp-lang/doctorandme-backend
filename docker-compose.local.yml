@@ -18,7 +18,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d pharmacy"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d pharmacy" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -174,7 +174,8 @@ services:
     networks:
       - doctorandme-network
     volumes:
-      - ./kong-gateway-structure/kong.yml:/kong/kong.yml:ro
+      # - ./kong-gateway-structure/kong.yml:/kong/kong.yml:ro
+      - ./kong.yml:/kong/kong.yml:ro
     restart: unless-stopped
 
   # ----------------------

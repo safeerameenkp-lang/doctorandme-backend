@@ -206,8 +206,7 @@ func (r *postgresSupplierRepo) Update(ctx context.Context, s *Supplier) error {
 		s.Website, s.Email, s.Address, s.State, s.Pincode,
 		s.GSTNumber, s.PANNumber, s.LicenseNumber,
 		s.BankDetails.BankName, s.BankDetails.AccountName, s.BankDetails.AccountNumber, s.BankDetails.IFSCCode,
-		s.CreditTerms.CreditPeriodDays, s.CreditTerms.CreditLimit, s.IsActive, s.CreatedAt, s.UpdatedAt,
-		s.CreatedBy, s.UpdatedBy,
+		s.CreditTerms.CreditPeriodDays, s.CreditTerms.CreditLimit, s.IsActive, s.UpdatedAt, s.UpdatedBy,
 	)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok {

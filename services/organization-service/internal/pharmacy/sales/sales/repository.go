@@ -87,10 +87,10 @@ func (r *postgresRepository) GetSaleByID(ctx context.Context, pharmacyID, id uui
 	`
 	s := &Sale{}
 	err := r.db.QueryRowContext(ctx, query, id, pharmacyID).Scan(
-		&s.ID, &s.PharmacyID, &s.SaleType, &s.PrescriptionID, &s.PatientID, 
-		&s.CustomerName, &s.CustomerPhone, &s.CustomerAge, &s.CustomerGender, &s.CustomerAddress, 
-		&s.Status, &s.GrossAmount, &s.TotalAmount, &s.TotalDiscount, &s.TotalTax, 
-		&s.InvoiceNumber, &s.IsRecurring, &s.DaysSupply, &s.NextRefillDate, 
+		&s.ID, &s.PharmacyID, &s.SaleType, &s.PrescriptionID, &s.PatientID,
+		&s.CustomerName, &s.CustomerPhone, &s.CustomerAge, &s.CustomerGender, &s.CustomerAddress,
+		&s.Status, &s.GrossAmount, &s.TotalAmount, &s.TotalDiscount, &s.TotalTax,
+		&s.InvoiceNumber, &s.IsRecurring, &s.DaysSupply, &s.NextRefillDate,
 		&s.AppliedCredit, &s.AppliedDue, &s.GeneratedCredit, &s.GeneratedDue, &s.CreatedAt, &s.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -121,10 +121,10 @@ func (r *postgresRepository) GetLatestSaleByPrescriptionID(ctx context.Context, 
 	`
 	s := &Sale{}
 	err := r.db.QueryRowContext(ctx, query, rxID, pharmacyID).Scan(
-		&s.ID, &s.PharmacyID, &s.SaleType, &s.PrescriptionID, &s.PatientID, 
-		&s.CustomerName, &s.CustomerPhone, &s.CustomerAge, &s.CustomerGender, &s.CustomerAddress, 
-		&s.Status, &s.GrossAmount, &s.TotalAmount, &s.TotalDiscount, &s.TotalTax, 
-		&s.InvoiceNumber, &s.IsRecurring, &s.DaysSupply, &s.NextRefillDate, 
+		&s.ID, &s.PharmacyID, &s.SaleType, &s.PrescriptionID, &s.PatientID,
+		&s.CustomerName, &s.CustomerPhone, &s.CustomerAge, &s.CustomerGender, &s.CustomerAddress,
+		&s.Status, &s.GrossAmount, &s.TotalAmount, &s.TotalDiscount, &s.TotalTax,
+		&s.InvoiceNumber, &s.IsRecurring, &s.DaysSupply, &s.NextRefillDate,
 		&s.AppliedCredit, &s.AppliedDue, &s.GeneratedCredit, &s.GeneratedDue, &s.CreatedAt, &s.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {

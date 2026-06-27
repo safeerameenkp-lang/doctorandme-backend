@@ -8,14 +8,14 @@ import (
 	"net/http"
 	"time"
 
-	"organization-service/middleware"
 	"organization-service/internal/pharmacy/sales/prescriptions"
+	"organization-service/middleware"
 
 	"github.com/google/uuid"
 )
 
 type Reservation struct {
-	Quantity  int       `json:"quantity"`
+	Quantity int `json:"quantity"`
 }
 
 type ReturnItemRequest struct {

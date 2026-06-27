@@ -41,8 +41,8 @@ func (r *postgresRepository) CreateStockOut(ctx context.Context, tx *sql.Tx, sto
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 	_, err := tx.ExecContext(ctx, query,
-		stockOut.ID, stockOut.PharmacyID, stockOut.Status, stockOut.Type, stockOut.Reason, 
-		stockOut.DestinationType, stockOut.DestinationName, stockOut.DestinationID, stockOut.TotalLossValue, 
+		stockOut.ID, stockOut.PharmacyID, stockOut.Status, stockOut.Type, stockOut.Reason,
+		stockOut.DestinationType, stockOut.DestinationName, stockOut.DestinationID, stockOut.TotalLossValue,
 		stockOut.CreatedByID, stockOut.CreatedByName, stockOut.CreatedAt, stockOut.UpdatedAt,
 	)
 	if err != nil {
@@ -77,7 +77,7 @@ func (r *postgresRepository) CreateStockOut(ctx context.Context, tx *sql.Tx, sto
 		// Insert Item
 		_, err = tx.ExecContext(ctx, itemQuery,
 			item.ID, item.StockOutID, item.PharmacyID, item.MedicineID, item.MedicineName,
-			item.BatchID, item.BatchNo, item.ExpiryDate, item.UnitType, item.Quantity, 
+			item.BatchID, item.BatchNo, item.ExpiryDate, item.UnitType, item.Quantity,
 			item.UnitCostPrice, item.TotalLoss, item.CreatedAt,
 		)
 		if err != nil {
@@ -140,7 +140,7 @@ func (r *postgresRepository) GetStockOutByID(ctx context.Context, pharmacyID, id
 		var it StockOutItem
 		err := rows.Scan(
 			&it.ID, &it.StockOutID, &it.PharmacyID, &it.MedicineID, &it.MedicineName,
-			&it.BatchID, &it.BatchNo, &it.ExpiryDate, &it.UnitType, &it.Quantity, 
+			&it.BatchID, &it.BatchNo, &it.ExpiryDate, &it.UnitType, &it.Quantity,
 			&it.UnitCostPrice, &it.TotalLoss, &it.CreatedAt,
 		)
 		if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
 	"github.com/google/uuid"
 )
 
@@ -25,10 +26,10 @@ func (r *repository) RecordMovement(ctx context.Context, dto RecordMovementDTO) 
 
 	// 1. Lock the batch row and get current balance (FOR UPDATE ensures thread safety)
 	var currentBalance int
-	err = tx.QueryRowContext(ctx, 
+	err = tx.QueryRowContext(ctx,
 		"SELECT quantity_available FROM inventory.batches WHERE id = $1 AND pharmacy_id = $2 FOR UPDATE",
 		dto.BatchID, dto.PharmacyID).Scan(&currentBalance)
-	
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return 0, fmt.Errorf("batch not found: %w", err)
@@ -60,7 +61,7 @@ func (r *repository) RecordMovement(ctx context.Context, dto RecordMovementDTO) 
 		dto.PharmacyID, dto.MedicineID, dto.BatchID, dto.TransactionType,
 		dto.QuantityChange, newBalance, dto.ReferenceType,
 		dto.ReferenceID, dto.PerformedBy, dto.Notes)
-	
+
 	if err != nil {
 		return 0, fmt.Errorf("failed to create ledger entry: %w", err)
 	}

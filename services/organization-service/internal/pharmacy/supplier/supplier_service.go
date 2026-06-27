@@ -6,8 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"organization-service/middleware"
+
+	"github.com/google/uuid"
 )
 
 type SupplierService interface {

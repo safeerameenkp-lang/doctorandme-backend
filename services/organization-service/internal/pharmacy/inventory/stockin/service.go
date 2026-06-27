@@ -6,10 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"database/sql"
 	"organization-service/internal/pharmacy/inventory/batches"
 	"organization-service/internal/pharmacy/inventory/medicines"
+
+	"github.com/google/uuid"
 )
 
 // Service defines the business logic for stock-in operations
@@ -56,7 +57,7 @@ func (s *service) AddStockIn(ctx context.Context, pharmacyID, userID uuid.UUID, 
 	}
 
 	purchaseID := uuid.New()
-	
+
 	// Prepare items and perform calculations
 	var items []PurchaseItem
 	var calculatedGrandTotal float64
@@ -74,7 +75,7 @@ func (s *service) AddStockIn(ctx context.Context, pharmacyID, userID uuid.UUID, 
 		// 3. Automated Unit/Mode Logic (Rule 6, 7, 9)
 		unitMode := med.UnitType // Rule 6: Fetch from medicine table
 		unitsPerMode := reqItem.UnitsPerMode
-		
+
 		// Rule 7: Only Strip mode needs entry, others default to 1
 		if strings.ToLower(unitMode) != "strip" {
 			unitsPerMode = 1
@@ -102,37 +103,37 @@ func (s *service) AddStockIn(ctx context.Context, pharmacyID, userID uuid.UUID, 
 		calculatedGrandTotal += reqItem.ItemTotalAmount
 
 		item := PurchaseItem{
-			ID:                        uuid.New(),
-			PurchaseID:                purchaseID,
-			PharmacyID:                pharmacyID,
-			MedicineID:                reqItem.MedicineID,
-			BatchNo:                   reqItem.BatchNo,
-			MfgDate:                   reqItem.MfgDate,
-			ExpiryDate:                reqItem.ExpiryDate,
-			RackNo:                    reqItem.RackNo,
-			UnitMode:                  unitMode,
-			UnitsPerMode:              unitsPerMode,
-			ReceivedQty:               reqItem.ReceivedQty,
-			BonusQty:                  reqItem.BonusQty,
-			TotalQtyUnits:             totalQtyUnits,
-			BaseUnit:                  baseUnit,
-			PurchasePricePerMode:      reqItem.PurchasePricePerMode,
-			MRPPerMode:                reqItem.MRPPerMode,
-			
+			ID:                   uuid.New(),
+			PurchaseID:           purchaseID,
+			PharmacyID:           pharmacyID,
+			MedicineID:           reqItem.MedicineID,
+			BatchNo:              reqItem.BatchNo,
+			MfgDate:              reqItem.MfgDate,
+			ExpiryDate:           reqItem.ExpiryDate,
+			RackNo:               reqItem.RackNo,
+			UnitMode:             unitMode,
+			UnitsPerMode:         unitsPerMode,
+			ReceivedQty:          reqItem.ReceivedQty,
+			BonusQty:             reqItem.BonusQty,
+			TotalQtyUnits:        totalQtyUnits,
+			BaseUnit:             baseUnit,
+			PurchasePricePerMode: reqItem.PurchasePricePerMode,
+			MRPPerMode:           reqItem.MRPPerMode,
+
 			// Rates are stored for billing, but not used in procurement cost math
-			CGSTRate:                  med.CGSTRate,
-			SGSTRate:                  med.SGSTRate,
-			TotalTaxPercentage:        med.CGSTRate + med.SGSTRate,
-			
+			CGSTRate:           reqItem.CGSTRate,
+			SGSTRate:           reqItem.SGSTRate,
+			TotalTaxPercentage: reqItem.CGSTRate + reqItem.SGSTRate,
+
 			RetailDiscountPercentage:  reqItem.RetailDiscountPercentage,
 			StaffDiscountPercentage:   reqItem.StaffDiscountPercentage,
 			SpecialDiscountPercentage: reqItem.SpecialDiscountPercentage,
 			MaxDiscountPercentage:     reqItem.MaxDiscountPercentage,
-			
-			CostPricePerMode:          costPricePerMode,
-			CostPricePerUnit:          costPricePerUnit,
-			ItemTotalAmount:           reqItem.ItemTotalAmount,
-			CreatedAt:                 time.Now(),
+
+			CostPricePerMode: costPricePerMode,
+			CostPricePerUnit: costPricePerUnit,
+			ItemTotalAmount:  reqItem.ItemTotalAmount,
+			CreatedAt:        time.Now(),
 		}
 		items = append(items, item)
 	}
@@ -152,7 +153,7 @@ func (s *service) AddStockIn(ctx context.Context, pharmacyID, userID uuid.UUID, 
 	} else if req.PaidAmount > 0 {
 		paymentStatus = "partial"
 	}
-	
+
 	// Due Amount is calculated by DB (Generated Column), but we can set it here for the return object
 	dueAmount := req.GrandTotal - req.PaidAmount
 
@@ -178,28 +179,28 @@ func (s *service) AddStockIn(ctx context.Context, pharmacyID, userID uuid.UUID, 
 		for _, item := range items {
 			// Map PurchaseItem to UpdateBatchDTO
 			dto := batches.UpdateBatchDTO{
-				PharmacyID:      item.PharmacyID,
-				MedicineID:      item.MedicineID,
-				BatchNo:         item.BatchNo,
-				MfgDate:         item.MfgDate,
-				ExpiryDate:      item.ExpiryDate,
-				RackNo:          item.RackNo,
-				QuantityToAdd:   item.TotalQtyUnits, // Adding total units to stock
-				
-				CostPrice:       item.CostPricePerUnit,
-				MRP:             item.MRPPerMode / float64(item.UnitsPerMode), // Calculate MRP per Unit
-				UnitPrice:       item.MRPPerMode / float64(item.UnitsPerMode), // Using MRP as Unit Price basis for now
-				
-				CGSTRate:        item.CGSTRate,
-				SGSTRate:        item.SGSTRate,
+				PharmacyID:    item.PharmacyID,
+				MedicineID:    item.MedicineID,
+				BatchNo:       item.BatchNo,
+				MfgDate:       item.MfgDate,
+				ExpiryDate:    item.ExpiryDate,
+				RackNo:        item.RackNo,
+				QuantityToAdd: item.TotalQtyUnits, // Adding total units to stock
+
+				CostPrice: item.CostPricePerUnit,
+				MRP:       item.MRPPerMode / float64(item.UnitsPerMode), // Calculate MRP per Unit
+				UnitPrice: item.MRPPerMode / float64(item.UnitsPerMode), // Using MRP as Unit Price basis for now
+
+				CGSTRate:           item.CGSTRate,
+				SGSTRate:           item.SGSTRate,
 				TotalTaxPercentage: item.TotalTaxPercentage,
-				
+
 				RetailDiscPerc:  item.RetailDiscountPercentage,
 				StaffDiscPerc:   item.StaffDiscountPercentage,
 				SpecialDiscPerc: item.SpecialDiscountPercentage,
 				MaxDiscPerc:     item.MaxDiscountPercentage,
-				
-				SupplierID:      req.SupplierID,
+
+				SupplierID: req.SupplierID,
 
 				// Ledger Metadata
 				TransactionType: "PURCHASE",
@@ -207,7 +208,7 @@ func (s *service) AddStockIn(ctx context.Context, pharmacyID, userID uuid.UUID, 
 				ReferenceID:     &purchaseID,
 				Notes:           fmt.Sprintf("Stock added via Invoice %s", req.InvoiceNo),
 			}
-			
+
 			batchID, err := s.batchesSvc.Repo().UpsertBatch(ctx, tx, dto)
 			if err != nil {
 				return err

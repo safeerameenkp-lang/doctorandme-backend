@@ -107,6 +107,11 @@ type CreatePurchaseItem struct {
 	StaffDiscountPercentage   float64 `json:"staff_discount_percentage" validate:"gte=0,lte=100"`
 	SpecialDiscountPercentage float64 `json:"special_discount_percentage" validate:"gte=0,lte=100"`
 	MaxDiscountPercentage     float64 `json:"max_discount_percentage" validate:"gte=0,lte=100"`
+
+	// Tax Details (Rates entered or auto-populated during stock-in)
+	CGSTRate                  float64 `json:"cgst_rate" validate:"gte=0"`
+	SGSTRate                  float64 `json:"sgst_rate" validate:"gte=0"`
+	TotalTaxPercentage        float64 `json:"total_tax_percentage" validate:"gte=0"`
 }
 
 // StockInStats represents financial summary for stock-in

@@ -19,10 +19,10 @@ const (
 
 // StockLedger represents an entry in the audit log
 type StockLedger struct {
-	ID             uuid.UUID       `json:"id"`
-	PharmacyID     uuid.UUID       `json:"pharmacy_id"`
-	MedicineID     uuid.UUID       `json:"medicine_id"`
-	BatchID        uuid.UUID       `json:"batch_id"`
+	ID              uuid.UUID       `json:"id"`
+	PharmacyID      uuid.UUID       `json:"pharmacy_id"`
+	MedicineID      uuid.UUID       `json:"medicine_id"`
+	BatchID         uuid.UUID       `json:"batch_id"`
 	TransactionType TransactionType `json:"transaction_type"`
 	QuantityChange  int             `json:"quantity_change"`
 	BalanceAfter    int             `json:"balance_after"`
@@ -35,9 +35,9 @@ type StockLedger struct {
 
 // RecordMovementDTO is the input for recording a stock change
 type RecordMovementDTO struct {
-	PharmacyID     uuid.UUID
-	MedicineID     uuid.UUID
-	BatchID        uuid.UUID
+	PharmacyID      uuid.UUID
+	MedicineID      uuid.UUID
+	BatchID         uuid.UUID
 	TransactionType TransactionType
 	QuantityChange  int
 	ReferenceType   *string

@@ -22,17 +22,18 @@ type Database interface {
 }
 
 // JWT utilities
-func SignAccessToken(userID string) (string, error) {
+func SignAccessToken(userID string, userName string) (string, error) {
 	secret := os.Getenv("JWT_ACCESS_SECRET")
 	if secret == "" {
 		return "", errors.New("JWT_ACCESS_SECRET not set")
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":  userID,
-		"exp":  time.Now().Add(15 * time.Minute).Unix(),
-		"iat":  time.Now().Unix(),
-		"type": "access",
+		"sub":       userID,
+		"user_name": userName,
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+		"iat":       time.Now().Unix(),
+		"type":      "access",
 	})
 	return token.SignedString([]byte(secret))
 }
