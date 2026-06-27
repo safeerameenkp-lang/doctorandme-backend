@@ -17,7 +17,6 @@ import (
 	"organization-service/internal/pharmacy/sales/prescriptions"
 	"organization-service/internal/pharmacy/sales/sales"
 	"organization-service/internal/pharmacy/supplier"
-	"organization-service/internal/pharmacy/dashboard"
 	"organization-service/routes"
 	"os"
 	"os/signal"
@@ -45,11 +44,6 @@ func main() {
 	patientRepo := patient.NewPatientRepository(config.DB)
 	patientService := patient.NewPatientService(patientRepo)
 	patientHandler := patient.NewPatientHandler(patientService)
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8081"
-	}
 
 	// Initialize Pharmacy Inventory dependencies
 	medsRepo := medicines.NewRepository(config.DB)
@@ -87,6 +81,10 @@ func main() {
 	}
 
 	// Initialize Pharmacy Sales dependencies
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8081"
+	}
 	inventoryBaseURL := "http://localhost:" + port + "/api/pharmacy/inventory"
 
 	rxRepo := prescriptions.NewRepository(config.DB)
@@ -120,10 +118,6 @@ func main() {
 	notificationHandlersBundle := routes.NotificationHandlers{
 		Notification: notifHandler,
 	}
-
-	// Initialize Pharmacy Dashboard Handler
-	dashHandler := dashboard.NewHandler()
-	r.GET("/dashboard/summary", middleware.AuthMiddleware(config.DB), dashHandler.GetSummary)
 
 	api := r.Group("/api")
 	routes.OrganizationRoutes(api, patientHandler, inventoryHandlers, salesHandlers, supplierHandlersBundle, notificationHandlersBundle)
