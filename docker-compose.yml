@@ -1,6 +1,8 @@
 # Docker Compose for DoctorAndMe Backend
 # Contains Auth, Organization, and Appointment microservices.
 
+name: doctorandme-backend
+
 services:
 
   # ----------------------
