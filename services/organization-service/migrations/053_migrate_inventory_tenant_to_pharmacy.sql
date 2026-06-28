@@ -87,3 +87,11 @@ BEGIN
         CREATE INDEX IF NOT EXISTS idx_medicine_audit_logs_pharmacy_id ON inventory.medicine_audit_logs(pharmacy_id);
     END IF;
 END $$;
+
+-- 11. inventory.batch_audit_logs
+ALTER TABLE inventory.batch_audit_logs DROP CONSTRAINT IF EXISTS fk_batch_audit_tenant;
+ALTER TABLE inventory.batch_audit_logs RENAME COLUMN tenant_id TO pharmacy_id;
+ALTER TABLE inventory.batch_audit_logs ADD CONSTRAINT fk_batch_audit_pharmacy FOREIGN KEY (pharmacy_id) REFERENCES public.pharmacies(id) ON DELETE CASCADE;
+
+DROP INDEX IF EXISTS inventory.idx_batch_audit_tenant;
+CREATE INDEX IF NOT EXISTS idx_batch_audit_pharmacy ON inventory.batch_audit_logs(pharmacy_id);
