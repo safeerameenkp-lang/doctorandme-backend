@@ -18,6 +18,7 @@ type Repository interface {
 	GetStockInStats(ctx context.Context, pharmacyID uuid.UUID) (*StockInStats, error)
 	CreateLog(ctx context.Context, tx *sql.Tx, log *StockInAuditLog) error
 	GetAuditLogs(ctx context.Context, stockInID, pharmacyID uuid.UUID) ([]*StockInAuditLog, error)
+	UpdatePayment(ctx context.Context, pharmacyID, purchaseID uuid.UUID, paidAmount float64, paymentStatus string, log *StockInAuditLog) error
 }
 
 type postgresRepository struct {
@@ -282,3 +283,34 @@ func (r *postgresRepository) GetAuditLogs(ctx context.Context, stockInID, pharma
 
 	return logs, nil
 }
+
+func (r *postgresRepository) UpdatePayment(ctx context.Context, pharmacyID, purchaseID uuid.UUID, paidAmount float64, paymentStatus string, log *StockInAuditLog) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	query := `
+		UPDATE inventory.purchases
+		SET paid_amount = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $3 AND pharmacy_id = $4
+	`
+	_, err = tx.ExecContext(ctx, query, paidAmount, paymentStatus, purchaseID, pharmacyID)
+	if err != nil {
+		return fmt.Errorf("failed to update purchase payment: %w", err)
+	}
+
+	if log != nil {
+		if err := r.CreateLog(ctx, tx, log); err != nil {
+			return fmt.Errorf("failed to create stock in update log: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit update transaction: %w", err)
+	}
+
+	return nil
+}
+

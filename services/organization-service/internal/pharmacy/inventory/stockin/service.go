@@ -20,6 +20,7 @@ type Service interface {
 	ListStockIn(ctx context.Context, pharmacyID uuid.UUID, page, pageSize int) ([]Purchase, int, error)
 	GetStockInStats(ctx context.Context, pharmacyID uuid.UUID) (*StockInStats, error)
 	GetStockInHistory(ctx context.Context, purchaseID, pharmacyID uuid.UUID) ([]*StockInAuditLog, error)
+	UpdateStockInPayment(ctx context.Context, pharmacyID, purchaseID, userID uuid.UUID, userName string, req UpdateStockInPaymentRequest) (*Purchase, error)
 }
 
 type service struct {
@@ -270,3 +271,50 @@ func (s *service) GetStockInStats(ctx context.Context, pharmacyID uuid.UUID) (*S
 func (s *service) GetStockInHistory(ctx context.Context, purchaseID, pharmacyID uuid.UUID) ([]*StockInAuditLog, error) {
 	return s.repo.GetAuditLogs(ctx, purchaseID, pharmacyID)
 }
+
+func (s *service) UpdateStockInPayment(ctx context.Context, pharmacyID, purchaseID, userID uuid.UUID, userName string, req UpdateStockInPaymentRequest) (*Purchase, error) {
+	// 1. Fetch current purchase record to validate and verify ownership/details
+	purchase, _, err := s.repo.GetPurchaseByID(ctx, pharmacyID, purchaseID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch purchase: %w", err)
+	}
+
+	// 2. Validate PaidAmount (cannot exceed grand_total)
+	if req.PaidAmount > purchase.GrandTotal {
+		return nil, fmt.Errorf("paid amount (%0.2f) cannot exceed grand total (%0.2f)", req.PaidAmount, purchase.GrandTotal)
+	}
+
+	// 3. Determine new payment status
+	paymentStatus := "unpaid"
+	if req.PaidAmount >= purchase.GrandTotal {
+		paymentStatus = "paid"
+	} else if req.PaidAmount > 0 {
+		paymentStatus = "partial"
+	}
+
+	// 4. Create Audit Log
+	log := &StockInAuditLog{
+		ID:            uuid.New(),
+		PharmacyID:    pharmacyID,
+		StockInID:     purchaseID,
+		ActionType:    "UPDATE",
+		ChangedBy:     userID,
+		ChangedByName: userName,
+		ChangedAt:     time.Now(),
+	}
+
+	// 5. Save changes in database
+	err = s.repo.UpdatePayment(ctx, pharmacyID, purchaseID, req.PaidAmount, paymentStatus, log)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update payment in database: %w", err)
+	}
+
+	// 6. Return updated purchase record (reload to get dynamically generated values like due_amount)
+	updatedPurchase, _, err := s.repo.GetPurchaseByID(ctx, pharmacyID, purchaseID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch updated purchase: %w", err)
+	}
+
+	return updatedPurchase, nil
+}
+

@@ -422,6 +422,7 @@ func OrganizationRoutes(rg *gin.RouterGroup, patientHandler *patient.PatientHand
 		si.GET("/stats", inventoryHandlers.StockIn.GetStats)
 		si.GET("/:id", inventoryHandlers.StockIn.GetByID)
 		si.GET("/:id/history", inventoryHandlers.StockIn.GetHistory)
+		si.PUT("/:id/payment", inventoryHandlers.StockIn.UpdatePayment)
 	}
 
 	// Pharmacy Inventory - Stock Out

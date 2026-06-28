@@ -171,6 +171,47 @@ func (h *Handler) GetHistory(c *gin.Context) {
 	h.respondJSON(c, http.StatusOK, history)
 }
 
+func (h *Handler) UpdatePayment(c *gin.Context) {
+	pharmacyIDStr := middleware.GetPharmacyInfo(c.Request.Context())
+	pharmacyID, err := uuid.Parse(pharmacyIDStr)
+	if err != nil {
+		h.respondError(c, http.StatusUnauthorized, "invalid pharmacy")
+		return
+	}
+
+	userIDStr, userName, _ := middleware.GetUserInfo(c.Request.Context())
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		h.respondError(c, http.StatusUnauthorized, "invalid user")
+		return
+	}
+
+	purchaseID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		h.respondError(c, http.StatusBadRequest, "Invalid purchase ID")
+		return
+	}
+
+	var req UpdateStockInPaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.respondError(c, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	if err := h.validate.Struct(req); err != nil {
+		h.respondError(c, http.StatusBadRequest, fmt.Sprintf("Validation failed: %v", err))
+		return
+	}
+
+	purchase, err := h.svc.UpdateStockInPayment(c.Request.Context(), pharmacyID, purchaseID, userID, userName, req)
+	if err != nil {
+		h.respondError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.respondJSON(c, http.StatusOK, purchase)
+}
+
 func (h *Handler) respondJSON(c *gin.Context, status int, data interface{}) {
 	c.JSON(status, APIResponse{Success: true, Data: data})
 }

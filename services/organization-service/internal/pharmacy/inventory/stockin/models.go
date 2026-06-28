@@ -114,6 +114,11 @@ type CreatePurchaseItem struct {
 	TotalTaxPercentage        float64 `json:"total_tax_percentage" validate:"gte=0"`
 }
 
+// UpdateStockInPaymentRequest is the payload to edit only the paid amount
+type UpdateStockInPaymentRequest struct {
+	PaidAmount float64 `json:"paid_amount" validate:"gte=0"`
+}
+
 // StockInStats represents financial summary for stock-in
 type StockInStats struct {
 	TotalAmount float64 `json:"total_amount"`
