@@ -67,6 +67,7 @@ echo "Step 1/4: Stopping containers and removing compose-built images..."
 "${COMPOSE[@]}" down --rmi local --remove-orphans
 
 echo "Step 2/4: Removing legacy project images (if any)..."
+for service in "${SERVICES[@]}"; do
   docker rmi -f "${PROJECT_NAME}-${service}:latest" 2>/dev/null || true
   docker rmi -f "${PROJECT_NAME}_${service}:latest" 2>/dev/null || true
 done
